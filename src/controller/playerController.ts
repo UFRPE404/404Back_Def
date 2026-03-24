@@ -18,38 +18,26 @@ import type { ApiPlayerResponse, ConditionalContext } from "../types/types";
  * @swagger
  * /api/player/search:
  *   get:
- *     summary: Busca jogadores pelo nome
+ *     summary: "[Não disponível] Busca jogadores pelo nome"
  *     tags: [Players]
+ *     description: "A b365api não possui endpoint de busca por nome. Para obter IDs de jogadores, use GET /api/match/{eventId}/lineup com o ID de uma partida ao vivo ou recente."
  *     parameters:
  *       - in: query
  *         name: name
  *         required: true
  *         schema:
  *           type: string
- *         description: Nome do jogador a buscar
+ *         description: Nome do jogador
  *         example: Haaland
  *     responses:
- *       200:
- *         description: Lista de jogadores encontrados com IDs e informações básicas.
- *       400:
- *         description: Query param 'name' não informado.
- *       500:
- *         description: Erro ao buscar jogador.
+ *       501:
+ *         description: Endpoint não suportado pela b365api.
  */
 export const searchPlayerByName = async (req: Request, res: Response) => {
-    try {
-        const name = req.query.name as string;
-        if (!name) {
-            res.status(400).json({ error: "Query param 'name' é obrigatório" });
-            return;
-        }
-
-        const results = await searchPlayer(name);
-        res.json(results);
-    } catch (error) {
-        console.error("Erro ao buscar jogador:", error);
-        res.status(500).json({ error: "Erro ao buscar jogador" });
-    }
+    res.status(501).json({
+        error: "A b365api não suporta busca de jogador por nome.",
+        suggestion: "Use GET /api/match/{eventId}/lineup para obter os IDs dos jogadores de uma partida. Você pode obter o eventId via GET /api/live.",
+    });
 };
 
 /**

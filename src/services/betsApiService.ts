@@ -108,19 +108,32 @@ export const getEventLineup = async (eventId: string) => {
 
 /**
  * Busca jogadores pelo nome.
+ * NOTA: A b365api não possui endpoint de busca por nome.
+ * Use GET /api/match/{eventId}/lineup para obter IDs de jogadores de uma partida.
  */
-export const searchPlayer = async (name: string) => {
+export const searchPlayer = async (_name: string): Promise<never> => {
+    throw new Error("A b365api não suporta busca de jogador por nome. Use o endpoint /api/match/{eventId}/lineup para obter IDs dos jogadores.");
+};
+
+/**
+ * Busca o histórico de partidas encerradas de um time pelo ID.
+ * @param teamId  - ID do time na b365api
+ * @param page    - Página de resultados (padrão: 1)
+ */
+export const getTeamHistory = async (teamId: string, page = 1) => {
     try {
-        const response = await axios.get(`https://api.b365api.com/v1/player/search`, {
+        const response = await axios.get(`${BASE_URL}/events/ended`, {
             params: {
                 token: TOKEN,
-                name,
+                sport_id: 1,
+                team_id: teamId,
+                page,
             }
         });
 
-        return response.data.results;
+        return response.data;
     } catch (error) {
-        console.log("Erro ao buscar jogador:", error);
+        console.log("Erro ao buscar histórico do time:", error);
         throw error;
     }
 };
