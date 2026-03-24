@@ -18,3 +18,18 @@ export const getLiveEvents = async () => {
     throw error;
     }
 };
+
+export const getEndedEvents = async () => {
+    try {
+        const response = await axios.get(`${BASE_URL}/events/ended`, {
+            params: {
+                token: TOKEN,
+                sport_id: 1
+            }
+        })
+        return response.data.results
+    } catch (error) {
+        console.log("Erro na API: ", error);
+        throw error;
+    }
+}
