@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
-import { getLiveEvents } from "../services/betsApiService";
-import { getEndedEvents } from "../services/betsApiService";
-import { formatMatch } from "../utils/formatter";
+import { getLiveEvents, getEndedEvents } from "../services/betsApiService.js";
+import { formatMatch } from "../utils/formatter.js";
 export const getLiveMatches = async (req: Request, res: Response) => {
     try {
         const matches = await getLiveEvents();
