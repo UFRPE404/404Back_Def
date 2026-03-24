@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { timeStamp } from 'node:console';
 
 const BASE_URL = 'https://api.b365api.com/v3'
 const TOKEN = process.env.BETS_API_TOKEN
@@ -38,3 +39,4 @@ export const getEndedEvents = async () => {
         throw error;
     }
 }
+
