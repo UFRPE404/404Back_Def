@@ -1,11 +1,12 @@
 import { Request, Response } from "express";
 import { getLiveEvents } from "../services/betsApiService";
 import { getEndedEvents } from "../services/betsApiService";
-
+import { formatMatch } from "../utils/formatter";
 export const getLiveMatches = async (req: Request, res: Response) => {
     try {
         const matches = await getLiveEvents();
-        res.json(matches)
+        const formatted = matches.map(formatMatch)
+        res.json(formatted)
     } catch (error) {
         res.status(500).json({erro: 'Erro ao buscar jogos ao vivo'});
     }
