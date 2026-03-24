@@ -4,6 +4,7 @@ import {
     analyzePlayerFromApiResponse,
     analyzePlayerFull,
 } from "../services/player-analysis.service";
+import { getPlayerRecommendation } from "../services/llamaService";
 import type { ApiPlayerResponse, ConditionalContext } from "../types/types";
 
 /**
@@ -145,5 +146,43 @@ export const searchPlayerByName = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Erro ao buscar jogador:", error);
         res.status(500).json({ error: "Erro ao buscar jogador" });
+    }
+};
+
+/**
+ * GET /api/player/:id/recommendation
+ * Usa o Llama para interpretar os dados do jogador e recomendar apostas.
+ *
+ * Query params opcionais:
+ *   isDerby, isHome, isOffensivePlayer, isDefensiveOpponent (boolean)
+ *   expectedMinutes (number)
+ */
+export const getPlayerBetRecommendation = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            res.status(400).json({ error: "player id é obrigatório" });
+            return;
+        }
+
+        const apiResponse: ApiPlayerResponse = await getPlayerEvents(id);
+
+        const context = {
+            isDerby: req.query.isDerby === "true",
+            isHome: req.query.isHome === "true",
+            isOffensivePlayer: req.query.isOffensivePlayer === "true",
+            isDefensiveOpponent: req.query.isDefensiveOpponent === "true",
+            expectedMinutes: req.query.expectedMinutes
+                ? Number(req.query.expectedMinutes)
+                : 90,
+        };
+
+        const analysis = analyzePlayerFromApiResponse(apiResponse, context);
+        const recommendation = await getPlayerRecommendation(analysis);
+
+        res.json(recommendation);
+    } catch (error) {
+        console.error("Erro ao gerar recomendação:", error);
+        res.status(500).json({ error: "Erro ao gerar recomendação de aposta" });
     }
 };
