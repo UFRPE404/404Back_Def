@@ -1,4 +1,5 @@
 import "dotenv/config";
+import cors from 'cors'
 import express from "express";
 import matchRoutes from "./routes/matchRoute";
 import playerRoutes from "./routes/playerRoute";
@@ -10,7 +11,7 @@ import { swaggerSpec } from './utils/swagger';
 const app = express();
 
 app.use(express.json());
-
+app.use(cors());
 // prefixo da API
 app.use("/api", matchRoutes);
 app.use("/api", playerRoutes);
