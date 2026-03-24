@@ -33,3 +33,35 @@ export const getEndedEvents = async () => {
         throw error;
     }
 }
+
+export const getUpcomingEvents = async () => {
+    try {
+        const response = await axios.get(`${BASE_URL}/events/upcoming`, {
+            params: {
+                token: TOKEN,
+                sport_id: 1
+            }
+        })
+
+        return response.data.results;
+    } catch (error) {
+        console.log("Erro ao buscar upcoming:", error);
+        throw error;
+    }
+};
+
+export const getEventOdds = async (eventId: string) => {
+    try {
+        const response = await axios.get(`https://api.b365api.com/v2/event/odds`, {
+            params: {
+                token: TOKEN,
+                event_id: eventId
+            }
+        })
+
+        return response.data.results;
+    } catch (error) {
+        console.log("Erro ao buscar odds:", error);
+        throw error;
+    }
+};
