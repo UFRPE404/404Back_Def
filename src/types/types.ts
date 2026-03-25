@@ -1,3 +1,4 @@
+
 // ── Tipos do Player Engine ──────────────────────────────────────────
 
 export type PlayerMatchEvent = {
@@ -63,6 +64,42 @@ export type MatchState = {
 
 export type ConditionalContext = {
     match: MatchState;
+    player?: {
+        isHome?: boolean;
+    };
+};
+
+export type OddsOptions = {
+    market?: string;
+};
+
+export type BettingFeature = {
+    playerId: string;
+    playerName: string;
+    market: string;
+    line: number;
+    probability: number;
+    odds?: number | undefined;
+    impliedProbability?: number | undefined;
+    ev?: number;
+    confidence: "high" | "medium" | "low";
+    context: {
+        minute: number;
+        scoreDiff: number;
+        isHome?: boolean | undefined;
+    };
+};
+
+export type BettingDecision = {
+    playerId: string;
+    playerName: string;
+    market: string;
+    probability: number;
+    odds?: number | undefined;
+    ev?: number | undefined;
+    confidence: "high" | "medium" | "low";
+    decision: "bet" | "no_bet";
+    reason: string;
 };
 
 export type ConditionalEventSummary = {

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPlayerEvents, getEventLineup, searchPlayer } from "../services/betsApiService";
+import { getPlayerEvents, getEventLineup } from "../services/betsApiService";
 import {
     analyzePlayerFromApiResponse,
     analyzePlayerFull,
