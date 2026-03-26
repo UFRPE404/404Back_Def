@@ -4,7 +4,7 @@ import pandas as pd
 
 def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = None, is_home: bool = True) -> dict:
     """
-    Constrói features de ML a partir do histórico do jogador.
+    Constrói features de ML a partir do histórico do jogador (dados StatsBomb).
     Usa médias ponderadas por recência + rolling stats + features contextuais.
     """
     df = player_df.sort_values("date").copy()
@@ -15,10 +15,10 @@ def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = Non
     weights /= weights.sum()
 
     stat_cols = [
-        "goals", "shots", "shots_on_goal", "yellowcards", "redcards",
+        "goals", "shots", "shots_on_target", "yellowcards", "redcards",
         "corners", "assists", "passes_completed", "pass_accuracy",
-        "tackles", "interceptions", "fouls_committed", "fouls_drawn",
-        "dribbles_completed", "aerial_duels_won", "minutes_played",
+        "tackles", "interceptions", "fouls_committed", "fouls_won",
+        "dribbles_completed", "minutes_played", "xg",
     ]
 
     features: dict = {}
@@ -37,12 +37,12 @@ def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = Non
                 features[f"last{window}_{col}"] = float(recent[col].fillna(0).mean())
 
     # Desvio padrão (variabilidade)
-    for col in ["goals", "shots", "shots_on_goal", "yellowcards"]:
+    for col in ["goals", "shots", "shots_on_target", "yellowcards", "xg"]:
         if col in df.columns:
             features[f"std_{col}"] = float(df[col].fillna(0).std())
 
     # Tendência (slope dos últimos 5 jogos)
-    for col in ["goals", "shots", "shots_on_goal"]:
+    for col in ["goals", "shots", "shots_on_target", "xg"]:
         if col in df.columns:
             recent_vals = df[col].fillna(0).tail(5).values.astype(float)
             if len(recent_vals) >= 2:
@@ -52,10 +52,15 @@ def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = Non
             else:
                 features[f"trend_{col}"] = 0.0
 
-    # Score de forma: normalizado entre 0 e 1
-    last3_goals = features.get("last3_goals", 0)
-    avg_goals = features.get("weighted_avg_goals", 0)
-    form_ratio = last3_goals / max(avg_goals, 0.01)
+    # Score de forma: normalizado entre 0 e 1, usando xG quando disponível
+    if "xg" in df.columns and df["xg"].sum() > 0:
+        last3_xg = features.get("last3_xg", 0)
+        avg_xg = features.get("weighted_avg_xg", 0)
+        form_ratio = last3_xg / max(avg_xg, 0.01)
+    else:
+        last3_goals = features.get("last3_goals", 0)
+        avg_goals = features.get("weighted_avg_goals", 0)
+        form_ratio = last3_goals / max(avg_goals, 0.01)
     features["form_score"] = float(min(form_ratio / 2.0, 1.0))
 
     # Features contextuais
@@ -63,13 +68,22 @@ def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = Non
 
     # Histórico contra oponente específico
     if opponent_id is not None:
-        vs_opponent = df[df["opponent_id"] == opponent_id]
+        # StatsBomb usa nome do time como ID
+        opp_col = "opponent_id"
+        if opp_col in df.columns:
+            vs_opponent = df[df[opp_col] == opponent_id]
+            if vs_opponent.empty:
+                # Tentar busca parcial
+                vs_opponent = df[df[opp_col].str.contains(str(opponent_id), case=False, na=False)]
+        else:
+            vs_opponent = pd.DataFrame()
+
         if not vs_opponent.empty:
-            for col in ["goals", "shots", "shots_on_goal", "yellowcards"]:
+            for col in ["goals", "shots", "shots_on_target", "yellowcards", "xg"]:
                 if col in vs_opponent.columns:
                     features[f"vs_opponent_{col}"] = float(vs_opponent[col].fillna(0).mean())
         else:
-            for col in ["goals", "shots", "shots_on_goal", "yellowcards"]:
+            for col in ["goals", "shots", "shots_on_target", "yellowcards", "xg"]:
                 features[f"vs_opponent_{col}"] = features.get(f"weighted_avg_{col}", 0.0)
 
     # Normalização de minutos
@@ -81,7 +95,7 @@ def build_player_features(player_df: pd.DataFrame, opponent_id: str | None = Non
 
 def build_team_features(team_df: pd.DataFrame) -> dict:
     """
-    Constrói features de ML a partir do histórico do time.
+    Constrói features de ML a partir do histórico do time (dados StatsBomb).
     """
     df = team_df.sort_values("date").copy()
     n = len(df)
@@ -136,7 +150,7 @@ def build_team_features(team_df: pd.DataFrame) -> dict:
         features["away_goals_avg"] = features.get("weighted_avg_goals_scored", 0.0)
         features["away_conceded_avg"] = features.get("weighted_avg_goals_conceded", 0.0)
 
-    # Força de ataque e defesa
+    # Força de ataque e defesa (xG-based)
     features["attack_strength"] = features.get("weighted_avg_xg", 0.0)
     features["defense_strength"] = features.get("weighted_avg_xg_against", 0.0)
 

@@ -1,7 +1,6 @@
 {
   "scripts": {
-    "kill-port": "fuser -k 3000/tcp 2>/dev/null; exit 0",
-    "dev": "npm run kill-port && ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {

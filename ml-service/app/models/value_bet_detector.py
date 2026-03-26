@@ -8,10 +8,10 @@ from app.models.player_predictor import predict_player, TARGET_STATS
 MARKETS: dict[str, list[float]] = {
     "goals": [0.5, 1.5, 2.5],
     "shots": [0.5, 1.5, 2.5, 3.5],
-    "shots_on_goal": [0.5, 1.5, 2.5],
+    "shots_on_target": [0.5, 1.5, 2.5],
     "yellowcards": [0.5, 1.5],
-    "corners": [0.5, 1.5, 2.5],
     "assists": [0.5, 1.5],
+    "xg": [0.5, 1.0, 1.5],
 }
 
 

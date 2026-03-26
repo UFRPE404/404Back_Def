@@ -5,7 +5,7 @@ from app.services.data_loader import get_player_history
 from app.services.feature_engineering import build_player_features
 
 
-TARGET_STATS = ["goals", "shots", "shots_on_goal", "yellowcards", "corners", "assists"]
+TARGET_STATS = ["goals", "shots", "shots_on_target", "yellowcards", "assists", "xg"]
 
 
 def predict_player(
@@ -16,11 +16,11 @@ def predict_player(
 ) -> dict:
     """
     Prediz as estatísticas de um jogador para a próxima partida
-    usando um modelo híbrido: médias ponderadas + ajuste contextual + Poisson.
+    usando dados StatsBomb: médias ponderadas + xG + ajuste contextual + Poisson.
     """
     player_df = get_player_history(player_id)
     player_info = {
-        "player_id": player_id,
+        "player_id": str(player_df.iloc[0]["player_id"]),
         "player_name": player_df.iloc[0]["player_name"],
         "position": player_df.iloc[0]["position"],
     }
@@ -79,6 +79,16 @@ def predict_player(
             insights.append(f"📈 {stat}: tendência de ALTA nas últimas partidas (slope={trend:.2f})")
         elif trend < -0.3:
             insights.append(f"📉 {stat}: tendência de QUEDA nas últimas partidas (slope={trend:.2f})")
+
+    # Insight de xG vs gols reais
+    avg_xg = features.get("weighted_avg_xg", 0)
+    avg_goals = features.get("weighted_avg_goals", 0)
+    if avg_xg > 0:
+        xg_diff = avg_goals - avg_xg
+        if xg_diff > 0.15:
+            insights.append(f"🎯 Jogador SUPERA o xG esperado (+{xg_diff:.2f} gols/jogo acima do xG)")
+        elif xg_diff < -0.15:
+            insights.append(f"📉 Jogador ABAIXO do xG esperado ({xg_diff:.2f} gols/jogo abaixo do xG)")
 
     # Insight geral de forma
     form_score = features.get("form_score", 0.5)

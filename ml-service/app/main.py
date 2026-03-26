@@ -1,3 +1,7 @@
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(name)s - %(message)s")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,10 +28,12 @@ app.include_router(predictions_router)
 def root():
     return {
         "service": "404Back ML Agent",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "data_source": "StatsBomb Open Data",
         "docs": "/docs",
         "endpoints": [
             "GET  /ml/health",
+            "GET  /ml/competitions",
             "GET  /ml/players",
             "GET  /ml/teams",
             "POST /ml/predict/player",
