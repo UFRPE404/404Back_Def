@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pandas
+numpy
+scipy
+scikit-learn
+joblib
+pydantic
+statsbombpy
+pyarrow
+httpx

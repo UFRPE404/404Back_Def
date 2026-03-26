@@ -1,7 +1,7 @@
 {
   "scripts": {
-    "kill-port": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a 2>nul & exit 0",
-    "dev": "npm run kill-port & ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
     "start": "node dist/server.js"
   },
   "dependencies": {
