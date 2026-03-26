@@ -161,12 +161,30 @@ export const getTeamHistory = async (teamId: string, page = 1) => {
                 sport_id: 1,
                 team_id: teamId,
                 page,
-            }
+            },
+            timeout: API_TIMEOUT,
         });
 
         return response.data;
     } catch (error) {
-        console.log("Erro ao buscar histórico do time:", error);
+        console.log(`Erro ao buscar histórico do time ${teamId} (page ${page}):`, (error as any)?.message ?? error);
         throw error;
+    }
+};
+
+/**
+ * Busca os dados de uma partida pelo event_id, incluindo IDs dos times.
+ * Endpoint: GET /v1/event/view
+ */
+export const getEventView = async (eventId: string) => {
+    try {
+        const response = await axios.get(`https://api.b365api.com/v1/event/view`, {
+            params: { token: TOKEN, event_id: eventId },
+            timeout: API_TIMEOUT,
+        });
+        return response.data.results?.[0] ?? null;
+    } catch (error) {
+        console.log("Erro ao buscar event view:", error);
+        return null;
     }
 };

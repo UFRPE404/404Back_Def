@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { getLiveEvents } from "../services/betsApiService";
 import { getEndedEvents } from "../services/betsApiService";
 import { getUpcomingEvents } from "../services/betsApiService";
-import { getMatchesWithOdds, getOddsForMatch } from "../services/MatchService";
+import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
 
 /**
  * @swagger
@@ -153,3 +153,38 @@ export const getMatchOdds = async (req: Request, res: Response) => {
     }
 };
 
+export const getMatchFullOdds = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getFullOddsForMatch(eventId);
+        if (!data) { res.status(404).json({ error: "Odds não encontradas para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error) {
+        console.error("Erro ao buscar full odds:", error);
+        res.status(500).json({ error: "Erro ao buscar full odds" });
+    }
+};
+
+export const getMatchH2H = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getH2HForMatch(eventId);
+        if (!data) { res.status(404).json({ error: "H2H não encontrado para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[H2H] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar H2H" });
+    }
+};
+
+export const getMatchH2HBulk = async (req: Request, res: Response) => {
+    try {
+        const data = getAllCachedH2H();
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error("[H2H-Bulk] Erro:", error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar H2H em lote" });
+    }
+};

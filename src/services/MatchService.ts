@@ -1,4 +1,4 @@
-import { getAllUpcomingForDay, getEventOdds } from "./betsApiService";
+import { getAllUpcomingForDay, getEventOdds, getEventView, getTeamHistory } from "./betsApiService";
 
 const VIRTUAL_KEYWORDS = [
     "esports", "virtual", "cyber", "simulated", "srl", "e-football", "efootball",
@@ -80,6 +80,169 @@ let matchesCache: CachedData | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 let backgroundFetchInProgress = false;
 
+// ─── Cache de H2H ──────────────────────────────────────────
+const h2hCache = new Map<string, any>();
+let h2hPreloadInProgress = false;
+
+/**
+ * Limita concorrência: executa fn para cada item com no máximo `limit` em paralelo.
+ */
+async function processWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+    const queue = [...items];
+    const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+        while (queue.length > 0) {
+            const item = queue.shift()!;
+            await fn(item);
+        }
+    });
+    await Promise.all(workers);
+}
+
+/**
+ * Lógica central de H2H: busca histórico dos 2 times e cruza confrontos.
+ * Reutilizada pelo preload (que já tem IDs) e pelo getH2HForMatch.
+ */
+async function computeH2HData(homeId: string, awayId: string, homeName: string, awayName: string) {
+    const [homeData1, homeData2, awayData1, awayData2] = await Promise.allSettled([
+        getTeamHistory(homeId, 1),
+        getTeamHistory(homeId, 2),
+        getTeamHistory(awayId, 1),
+        getTeamHistory(awayId, 2),
+    ]);
+
+    const extract = (res: PromiseSettledResult<any>): any[] =>
+        res.status === 'fulfilled' ? (res.value?.results ?? []) : [];
+
+    const homeMatches = [...extract(homeData1), ...extract(homeData2)];
+    const awayMatches = [...extract(awayData1), ...extract(awayData2)];
+
+    if (homeMatches.length === 0 && awayMatches.length === 0) {
+        return {
+            h2h: [],
+            homeLastMatches: [],
+            awayLastMatches: [],
+            stats: { totalMatches: 0, homeWins: 0, awayWins: 0, draws: 0, avgGoals: 0, bttsPercentage: 0, homeWinPercentage: 0, awayWinPercentage: 0, drawPercentage: 0 },
+        };
+    }
+
+    const homeMatchIds = new Set(homeMatches.map((m: any) => String(m.id)));
+    const h2hRaw = awayMatches.filter((m: any) => homeMatchIds.has(String(m.id)));
+
+    const mapMatch = (m: any, perspective: 'home' | 'away') => {
+        const ss = (m.ss ?? '0-0') as string;
+        const home = m.home?.name ?? '?';
+        const away = m.away?.name ?? '?';
+        const homeTeamScore = parseInt(ss.split('-')[0] ?? '0') || 0;
+        const awayTeamScore = parseInt(ss.split('-')[1] ?? '0') || 0;
+        let winner: 'home' | 'away' | 'draw';
+        if (homeTeamScore > awayTeamScore) winner = 'home';
+        else if (homeTeamScore < awayTeamScore) winner = 'away';
+        else winner = 'draw';
+        const ts = Number(m.time) * 1000;
+        const date = isNaN(ts) ? '' : new Date(ts).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: '2-digit' });
+        return { id: String(m.id), date, home, away, score: ss, winner, league: m.league?.name ?? '' };
+    };
+
+    const h2h = h2hRaw.slice(0, 10).map((m: any) => mapMatch(m, 'home'));
+    const homeLastMatches = homeMatches.slice(0, 5).map((m: any) => mapMatch(m, 'home'));
+    const awayLastMatches = awayMatches.slice(0, 5).map((m: any) => mapMatch(m, 'away'));
+
+    const totalMatches = h2h.length;
+    const homeWins = h2h.filter((m: any) => m.winner === 'home' && m.home === homeName).length + h2h.filter((m: any) => m.winner === 'away' && m.away === homeName).length;
+    const awayWins = h2h.filter((m: any) => m.winner === 'home' && m.home === awayName).length + h2h.filter((m: any) => m.winner === 'away' && m.away === awayName).length;
+    const draws = h2h.filter((m: any) => m.winner === 'draw').length;
+
+    const totalGoals = h2hRaw.reduce((sum: number, m: any) => {
+        const parts = (m.ss ?? '0-0').split('-').map(Number);
+        return sum + (parts[0] || 0) + (parts[1] || 0);
+    }, 0);
+    const avgGoals = totalMatches > 0 ? +(totalGoals / totalMatches).toFixed(1) : 0;
+    const bttsCount = h2hRaw.filter((m: any) => {
+        const parts = (m.ss ?? '0-0').split('-').map(Number);
+        return (parts[0] || 0) > 0 && (parts[1] || 0) > 0;
+    }).length;
+
+    return {
+        h2h,
+        homeLastMatches,
+        awayLastMatches,
+        stats: {
+            totalMatches,
+            homeWins,
+            awayWins,
+            draws,
+            avgGoals,
+            bttsPercentage: totalMatches > 0 ? Math.round((bttsCount / totalMatches) * 100) : 0,
+            homeWinPercentage: totalMatches > 0 ? Math.round((homeWins / totalMatches) * 100) : 0,
+            awayWinPercentage: totalMatches > 0 ? Math.round((awayWins / totalMatches) * 100) : 0,
+            drawPercentage: totalMatches > 0 ? Math.round((draws / totalMatches) * 100) : 0,
+        },
+    };
+}
+
+/**
+ * Pré-carrega H2H de todos os jogos cacheados em background.
+ * Usa concorrência limitada (2 jogos por vez = 8 chamadas API simultâneas).
+ * Deduplica por par de times (mesmo par = mesmo H2H).
+ */
+function preloadH2HInBackground() {
+    if (h2hPreloadInProgress || !matchesCache?.data?.length) return;
+    h2hPreloadInProgress = true;
+
+    const games = matchesCache.data;
+    const seenPairs = new Map<string, string>(); // pairKey -> first eventId
+    const tasks: { eventId: string; homeId: string; awayId: string; homeName: string; awayName: string; pairKey: string }[] = [];
+
+    for (const game of games) {
+        const eventId = String(game.id);
+        const homeId = String(game.home?.id ?? '');
+        const awayId = String(game.away?.id ?? '');
+        if (!homeId || !awayId) continue;
+
+        const pairKey = [homeId, awayId].sort().join('-');
+        if (seenPairs.has(pairKey)) {
+            // Mesmo par de times — reutiliza resultado quando estiver pronto
+            continue;
+        }
+        seenPairs.set(pairKey, eventId);
+        tasks.push({
+            eventId,
+            homeId,
+            awayId,
+            homeName: game.home?.name ?? 'Casa',
+            awayName: game.away?.name ?? 'Fora',
+            pairKey,
+        });
+    }
+
+    console.log(`[H2H-BG] Iniciando preload: ${tasks.length} pares únicos de ${games.length} jogos`);
+
+    processWithConcurrency(tasks, 2, async (task) => {
+        try {
+            const result = await computeH2HData(task.homeId, task.awayId, task.homeName, task.awayName);
+            if (result) {
+                // Salva para este evento e para todos os outros com o mesmo par de times
+                for (const game of games) {
+                    const gHomeId = String(game.home?.id ?? '');
+                    const gAwayId = String(game.away?.id ?? '');
+                    const gPairKey = [gHomeId, gAwayId].sort().join('-');
+                    if (gPairKey === task.pairKey) {
+                        h2hCache.set(String(game.id), result);
+                    }
+                }
+            }
+        } catch (err: any) {
+            console.error(`[H2H-BG] Erro para ${task.homeName} vs ${task.awayName}:`, err?.message ?? err);
+        }
+    }).then(() => {
+        console.log(`[H2H-BG] Preload concluído: ${h2hCache.size} jogos em cache`);
+    }).catch(err => {
+        console.error(`[H2H-BG] Erro no preload:`, err);
+    }).finally(() => {
+        h2hPreloadInProgress = false;
+    });
+}
+
 function isCacheValid(): boolean {
     return !!matchesCache && (Date.now() - matchesCache.timestamp) < CACHE_TTL;
 }
@@ -121,6 +284,8 @@ function fetchWeekInBackground() {
             const processed = processGames(allGames);
             matchesCache = { data: processed, timestamp: Date.now(), complete: true };
             console.log(`[BG] Semana completa: ${processed.length} jogos cacheados`);
+            // Dispara preload de H2H assim que o cache de jogos estiver completo
+            preloadH2HInBackground();
         })
         .catch(err => {
             console.error("[BG] Erro ao buscar semana:", err);
@@ -207,20 +372,36 @@ export const getFullOddsForMatch = async (eventId: string) => {
     const oddsData = rawOdds?.odds ?? rawOdds?.[0]?.odds ?? rawOdds;
     if (!oddsData || typeof oddsData !== "object") return null;
 
-    // Helper: pega entries do primeiro bookmaker de um mercado
+    // Helper: pega entries de um mercado (suporta array direto ou nested por bookmaker)
     const getEntries = (key: string): any[] => {
         const market = oddsData[key];
         if (!market) return [];
+        if (Array.isArray(market)) return market;
         const values = Object.values(market);
         return (values[0] as any[]) || [];
     };
 
-    const latest = (arr: any[]) => arr.length ? arr[arr.length - 1] : null;
+    // BetsAPI retorna arrays com entrada mais recente PRIMEIRO (índice 0)
+    const latest = (arr: any[]) => arr.length ? arr[0] : null;
 
-    // Agrupa entradas por handicap/line, mantendo a mais recente
+    // Converte linhas split asiáticas ("2.5,3.0") para o ponto médio ("2.75")
+    // e normaliza formatos duplicados ("3" e "3.0" → "3")
+    const normLine = (h: string | undefined): string => {
+        if (!h) return "0";
+        if (h.includes(",")) {
+            const parts = h.split(",").map(Number);
+            return parseFloat(((parts[0]! + parts[1]!) / 2).toFixed(2)).toString();
+        }
+        return parseFloat(h).toString();
+    };
+
+    // Agrupa por linha de handicap (normalizada) mantendo a entrada mais recente (primeira no array)
     const byLine = (arr: any[]) => {
         const m = new Map<string, any>();
-        for (const e of arr) m.set(e.handicap || "0", e);
+        for (const e of arr) {
+            const key = normLine(e.handicap);
+            if (!m.has(key)) m.set(key, e);
+        }
         return m;
     };
 
@@ -240,12 +421,18 @@ export const getFullOddsForMatch = async (eventId: string) => {
         .filter(g => !isNaN(g.over) && !isNaN(g.under))
         .sort((a, b) => parseFloat(a.line) - parseFloat(b.line));
 
-    // 3. Asian Handicap — market 1_2
+    // 3. Asian Handicap — market 1_2 — expanded to label/odd pairs for frontend
     const hLines = byLine(getEntries("1_2"));
     const handicap = [...hLines.entries()]
-        .map(([line, e]) => ({ line, home: parseFloat(e.home_od), away: parseFloat(e.away_od) }))
-        .filter(h => !isNaN(h.home) && !isNaN(h.away))
-        .sort((a, b) => parseFloat(a.line) - parseFloat(b.line));
+        .filter(([, e]) => !isNaN(parseFloat(e.home_od)) && !isNaN(parseFloat(e.away_od)))
+        .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
+        .flatMap(([line, e]) => {
+            const n = parseFloat(line);
+            return [
+                { label: `Casa ${n >= 0 ? "+" : ""}${line}`, odd: +(parseFloat(e.home_od)).toFixed(2) },
+                { label: `Fora ${n >= 0 ? "-" : "+"}${Math.abs(n)}`, odd: +(parseFloat(e.away_od)).toFixed(2) },
+            ];
+        });
 
     // 4. Escanteios Over/Under — markets 1_10, fallback 1_4
     const eCorners = getEntries("1_10").length ? getEntries("1_10") : getEntries("1_4");
@@ -270,45 +457,47 @@ export const getFullOddsForMatch = async (eventId: string) => {
         .filter(c => !isNaN(c.over) && !isNaN(c.under))
         .sort((a, b) => parseFloat(a.line) - parseFloat(b.line));
 
-    // 6. Ambas Marcam (BTTS) — market 1_8
-    const lBtts = latest(getEntries("1_8"));
-    const btts = lBtts ? {
-        yes: parseFloat(lBtts.yes_od || lBtts.home_od || "0"),
-        no: parseFloat(lBtts.no_od || lBtts.away_od || "0"),
-    } : null;
-
-    // 7. Dupla Chance — calculada a partir do 1X2
+    // 6. Dupla Chance — calculada a partir do 1X2
     const doubleChance = resultado ? {
-        hd: +(1 / (1 / resultado.home + 1 / resultado.draw)).toFixed(2),
-        ha: +(1 / (1 / resultado.home + 1 / resultado.away)).toFixed(2),
-        da: +(1 / (1 / resultado.draw + 1 / resultado.away)).toFixed(2),
+        homeOrDraw: +(1 / (1 / resultado.home + 1 / resultado.draw)).toFixed(2),
+        homeOrAway: +(1 / (1 / resultado.home + 1 / resultado.away)).toFixed(2),
+        drawOrAway: +(1 / (1 / resultado.draw + 1 / resultado.away)).toFixed(2),
     } : null;
 
-    // 8. Resultado Exato — market 1_9
+    // 8. Resultado Exato — market 1_9 — agrupado por home/draw/away
     const lCs = latest(getEntries("1_9"));
-    const correctScore: Record<string, number> = {};
+    const homeScores: { s: string; o: number }[] = [];
+    const drawScores: { s: string; o: number }[] = [];
+    const awayScores: { s: string; o: number }[] = [];
     if (lCs) {
         for (const [key, val] of Object.entries(lCs)) {
             if (/^\d+:\d+$/.test(key) && typeof val === "string") {
-                correctScore[key] = parseFloat(val);
+                const [a, b] = key.split(":").map(Number);
+                const odd = parseFloat(val);
+                if (isNaN(odd) || odd <= 0) continue;
+                const score = `${a}-${b}`;
+                if (a !== undefined && b !== undefined && a > b) homeScores.push({ s: score, o: odd });
+                else if (a !== undefined && b !== undefined && a === b) drawScores.push({ s: score, o: odd });
+                else awayScores.push({ s: score, o: odd });
             }
         }
     }
+    const correctScore = { homeScores, draws: drawScores, awayScores };
 
     // 9. 1º Tempo 1X2 — markets 1_5, fallback 1_6
     const eHt = getEntries("1_5").length ? getEntries("1_5") : getEntries("1_6");
     const lHt = latest(eHt);
     const halfTime = lHt?.home_od ? {
         home: parseFloat(lHt.home_od),
-        draw: parseFloat(lHt.draw_od),
+        draw: lHt.draw_od ? parseFloat(lHt.draw_od) : null,
         away: parseFloat(lHt.away_od),
     } : null;
 
-    // 10. Histórico de Odds (time series do 1X2)
-    const oddsHistory = e1x2
-        .filter((e: any) => e.home_od && e.time)
+    // 10. Histórico de Odds (time series do 1X2) — reverter para ordem cronológica (oldest→newest)
+    const oddsHistory = [...e1x2].reverse()
+        .filter((e: any) => e.home_od && e.add_time)
         .map((e: any) => ({
-            time: new Date(Number(e.time) * 1000).toLocaleTimeString("pt-BR", {
+            time: new Date(Number(e.add_time) * 1000).toLocaleTimeString("pt-BR", {
                 timeZone: "America/Sao_Paulo",
                 hour: "2-digit",
                 minute: "2-digit",
@@ -324,10 +513,58 @@ export const getFullOddsForMatch = async (eventId: string) => {
         handicap,
         corners,
         cards,
-        btts,
         doubleChance,
         correctScore,
         halfTime,
         oddsHistory,
     };
+};
+
+/**
+ * Busca o histórico H2H entre os dois times de uma partida.
+ * Primeiro verifica o cache, caso contrário busca da API.
+ */
+export const getH2HForMatch = async (eventId: string) => {
+    // Verifica cache primeiro
+    const cached = h2hCache.get(eventId);
+    if (cached) {
+        console.log(`[H2H] Cache hit para eventId=${eventId}`);
+        return cached;
+    }
+
+    const event = await getEventView(eventId);
+    if (!event) {
+        console.log(`[H2H] getEventView retornou null para eventId=${eventId}`);
+        return null;
+    }
+
+    const homeId = String(event.home?.id ?? '');
+    const awayId = String(event.away?.id ?? '');
+    const homeName: string = event.home?.name ?? 'Casa';
+    const awayName: string = event.away?.name ?? 'Fora';
+
+    if (!homeId || !awayId) {
+        console.log(`[H2H] IDs de time ausentes: homeId=${homeId} awayId=${awayId}`);
+        return null;
+    }
+
+    const result = await computeH2HData(homeId, awayId, homeName, awayName);
+
+    // Salva no cache para futuras consultas
+    if (result) {
+        h2hCache.set(eventId, result);
+    }
+
+    return result;
+};
+
+/**
+ * Retorna todos os H2H pré-carregados em cache.
+ */
+export const getAllCachedH2H = () => {
+    const result: Record<string, any> = {};
+    for (const [eventId, data] of h2hCache.entries()) {
+        result[eventId] = data;
+    }
+    return { h2h: result, total: h2hCache.size, preloading: h2hPreloadInProgress };
 };
