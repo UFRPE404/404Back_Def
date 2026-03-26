@@ -89,8 +89,8 @@ export const getEndedMatches = async (req: Request, res: Response) => {
  */
 export const getMatches = async (req: Request, res: Response) => {
     try {
-        const data = await getMatchesWithOdds();
-        res.status(200).json(data);
+        const { matches, cacheComplete } = await getMatchesWithOdds();
+        res.status(200).json({ matches, cacheComplete });
     } catch (error) {
         console.error("Erro no controller:", error);
         res.status(500).json({ error: "Erro ao buscar jogos com odds" });

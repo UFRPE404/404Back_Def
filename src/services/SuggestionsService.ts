@@ -327,7 +327,7 @@ export async function getFeaturedMatchIds(): Promise<string[]> {
     console.log("[Featured] Selecionando destaques com IA...");
 
     try {
-        const allMatches = await getMatchesWithOdds();
+        const { matches: allMatches } = await getMatchesWithOdds();
 
         if (GROQ_API_KEY) {
             const ids = await selectFeaturedWithAI(allMatches);
@@ -397,7 +397,7 @@ export async function getSuggestions(): Promise<Suggestion[]> {
 
     try {
         // 1. Pega jogos de hoje
-        const allMatches = await getMatchesWithOdds();
+        const { matches: allMatches } = await getMatchesWithOdds();
 
         // 2. Usa os IDs selecionados pela IA para focar a análise
         const featuredIds = await getFeaturedMatchIds();
