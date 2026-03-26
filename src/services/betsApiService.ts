@@ -2,6 +2,7 @@ import axios from 'axios'
 
 const BASE_URL = 'https://api.b365api.com/v3'
 const TOKEN = process.env.BETS_API_TOKEN
+const API_TIMEOUT = 30_000; // 30 segundos
 
 export const getLiveEvents = async () => {
     try {
@@ -9,7 +10,8 @@ export const getLiveEvents = async () => {
             params: {
                 token: TOKEN,
                 sport_id: 1 // id do futebol na doc 
-            }
+            },
+            timeout: API_TIMEOUT,
         })
         
         return response.data.results;
@@ -25,7 +27,8 @@ export const getEndedEvents = async () => {
             params: {
                 token: TOKEN,
                 sport_id: 1
-            }
+            },
+            timeout: API_TIMEOUT,
         })
         return response.data.results
     } catch (error) {
@@ -34,20 +37,49 @@ export const getEndedEvents = async () => {
     }
 }
 
-export const getUpcomingEvents = async () => {
+export const getUpcomingEvents = async (day?: string, page = 1) => {
     try {
-        const response = await axios.get(`${BASE_URL}/events/upcoming`, {
-            params: {
-                token: TOKEN,
-                sport_id: 1
-            }
-        })
+        const params: Record<string, any> = {
+            token: TOKEN,
+            sport_id: 1,
+            page,
+        };
+        if (day) params.day = day;
 
-        return response.data.results;
+        const response = await axios.get(`${BASE_URL}/events/upcoming`, { params, timeout: API_TIMEOUT });
+
+        return response.data;
     } catch (error) {
         console.log("Erro ao buscar upcoming:", error);
         throw error;
     }
+};
+
+/**
+ * Busca TODAS as páginas de upcoming para um dia, seguindo paginação da API.
+ */
+const MAX_PAGES_PER_DAY = 5; // limita para não travar
+
+export const getAllUpcomingForDay = async (day?: string): Promise<any[]> => {
+    const allResults: any[] = [];
+    let page = 1;
+
+    while (page <= MAX_PAGES_PER_DAY) {
+        try {
+            const data = await getUpcomingEvents(day, page);
+            const results = data.results ?? [];
+            allResults.push(...results);
+
+            const pager = data.pager;
+            if (!pager || page >= pager.total) break;
+            page++;
+        } catch {
+            console.log(`[API] Erro na página ${page} do dia ${day}, parando paginação`);
+            break;
+        }
+    }
+
+    return allResults;
 };
 
 export const getEventOdds = async (eventId: string) => {
@@ -56,7 +88,8 @@ export const getEventOdds = async (eventId: string) => {
             params: {
                 token: TOKEN,
                 event_id: eventId
-            }
+            },
+            timeout: API_TIMEOUT,
         })
 
         return response.data.results;
