@@ -1,4 +1,6 @@
-import { getUpcomingEvents, getEventOdds } from "./betsApiService";
+import { BetsApiService } from "./betsApiService";
+
+const api = new BetsApiService();
 
 const VIRTUAL_KEYWORDS = [
     "esports", "virtual", "cyber", "simulated", "srl", "e-football", "efootball",
@@ -14,13 +16,13 @@ const WANTED_MARKETS: Record<string, string> = {
     "1_1": "Resultado Final",
     "1_3": "Gols (Over/Under)",
     "1_6": "Resultado 1º Tempo",
-}; //To criando um objeto que mapeia uma string em outra usando Record 
+}; //To criando um objeto que mapeia uma string em outra usando Record
 // Mapeia os codigos internos da API para nomes melhores
 
 const filterOdds = (rawOdds: any): any => {
     if (!rawOdds) return null;
 
-    const oddsData = rawOdds.odds ?? rawOdds[0]?.odds ?? rawOdds; 
+    const oddsData = rawOdds.odds ?? rawOdds[0]?.odds ?? rawOdds;
     //Funcionamento: chama rawOdds.odds (Se houver um objeto, chama odds)
     //rawOdds[0]?.odds (Se a resposta for um array, eu tento pegar as odds do primeiro item)
     //rawOdds (Se os dados tiverem na "raiz" do projeto, já usa eles)
@@ -34,7 +36,7 @@ const filterOdds = (rawOdds: any): any => {
         }
     }
     //Object.entries transforma o objeto WANTED_MARKETS em uma lista de pares [chave, valor]
-    // vira isso: 
+    // vira isso:
     /*[
   ["1_1", "Resultado Final"],
   ["1_3", "Gols (Over/Under)"],
@@ -45,7 +47,8 @@ const filterOdds = (rawOdds: any): any => {
 };
 
 export const getMatchesWithOdds = async () => {
-    const games = await getUpcomingEvents();
+    const response = await api.getUpcomingEvents();
+    const games = response.results ?? response;
 
     const realGames = games.filter((game: any) => !isVirtualMatch(game));
     const selectedGames = realGames.slice(0, 5);
@@ -55,7 +58,7 @@ export const getMatchesWithOdds = async () => {
             let odds = null;
             if (game.id) {
                 try {
-                    const rawOdds = await getEventOdds(game.id); //Variavel que armazena o JSON que a API envia 
+                    const rawOdds = await api.getEventOdds(game.id); //Variavel que armazena o JSON que a API envia
                     odds = filterOdds(rawOdds);
                 } catch {
                     odds = null;

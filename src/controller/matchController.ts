@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
-import { getLiveEvents } from "../services/betsApiService";
-import { getEndedEvents } from "../services/betsApiService";
+import { BetsApiService } from "../services/betsApiService";
 import { getMatchesWithOdds } from "../services/MatchService";
+
+const api = new BetsApiService();
 
 /**
  * @swagger
@@ -24,12 +25,12 @@ import { getMatchesWithOdds } from "../services/MatchService";
  */
 export const getLiveMatches = async (req: Request, res: Response) => {
     try {
-        const matches = await getLiveEvents();
-        res.json(matches)
+        const matches = await api.getLiveEvents();
+        res.json(matches);
     } catch (error) {
-        res.status(500).json({error: 'Erro ao buscar jogos ao vivo'});
+        res.status(500).json({ error: "Erro ao buscar jogos ao vivo" });
     }
-}
+};
 
 /**
  * @swagger
@@ -45,12 +46,12 @@ export const getLiveMatches = async (req: Request, res: Response) => {
  */
 export const getEndedMatches = async (req: Request, res: Response) => {
     try {
-        const matchesEnded = await getEndedEvents();
-        res.json(matchesEnded)
+        const matchesEnded = await api.getEndedEvents();
+        res.json(matchesEnded);
     } catch (error) {
-        res.status(500).json({error: 'Erro ao buscar jogos encerrados'})
+        res.status(500).json({ error: "Erro ao buscar jogos encerrados" });
     }
-}
+};
 
 /**
  * @swagger
@@ -95,4 +96,3 @@ export const getMatches = async (req: Request, res: Response) => {
         res.status(500).json({ error: "Erro ao buscar jogos com odds" });
     }
 };
-

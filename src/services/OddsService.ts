@@ -1,6 +1,8 @@
-import { getEventOdds } from "./betsApiService";
+import { BetsApiService } from "./betsApiService";
 import { OddsCacheService } from "./OddsCacheService";
 import type { OddsOptions } from "../types/types";
+
+const api = new BetsApiService();
 
 /**
  * Serviço de odds com cache em memória (TTL 15s).
@@ -14,7 +16,7 @@ export class OddsService {
         const cached = await this.cache.get(eventId);
         if (cached) return cached;
 
-        const odds = await getEventOdds(eventId);
+        const odds = await api.getEventOdds(eventId);
         await this.cache.set(eventId, odds);
         return odds;
     }

@@ -1,11 +1,13 @@
 import { Request, Response } from "express";
-import { getPlayerEvents, getEventLineup } from "../services/betsApiService";
+import { BetsApiService } from "../services/betsApiService";
 import {
     analyzePlayerFromApiResponse,
     analyzePlayerFull,
 } from "../services/player-analysis.service";
 import { getPlayerRecommendation } from "../services/llamaService";
 import type { ApiPlayerResponse, ConditionalContext } from "../types/types";
+
+const api = new BetsApiService();
 
 /**
  * @swagger
@@ -96,7 +98,7 @@ export const getPlayerAnalysis = async (req: Request, res: Response) => {
             return;
         }
 
-        const apiResponse: ApiPlayerResponse = await getPlayerEvents(id);
+        const apiResponse: ApiPlayerResponse = await api.getPlayer(id);
 
         const context = {
             isDerby: req.query.isDerby === "true",
@@ -194,7 +196,7 @@ export const getPlayerBetRecommendation = async (req: Request, res: Response) =>
             return;
         }
 
-        const apiResponse: ApiPlayerResponse = await getPlayerEvents(id);
+        const apiResponse: ApiPlayerResponse = await api.getPlayer(id);
 
         const context = {
             isDerby: req.query.isDerby === "true",
@@ -310,7 +312,7 @@ export const getPlayerConditionalAnalysis = async (
             return;
         }
 
-        const apiResponse: ApiPlayerResponse = await getPlayerEvents(id);
+        const apiResponse: ApiPlayerResponse = await api.getPlayer(id);
 
         const report = analyzePlayerFull(
             apiResponse,
@@ -362,7 +364,7 @@ export const getLineup = async (req: Request, res: Response) => {
             return;
         }
 
-        const lineup = await getEventLineup(eventId);
+        const lineup = await api.getEventLineup(eventId);
         res.json(lineup);
     } catch (error) {
         console.error("Erro ao buscar lineup:", error);

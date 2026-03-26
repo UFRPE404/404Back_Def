@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
-import { getTeamHistory } from "../services/betsApiService";
+import { BetsApiService } from "../services/betsApiService";
+
+const api = new BetsApiService();
 
 /**
  * @swagger
@@ -99,7 +101,7 @@ export const getHistory = async (req: Request, res: Response) => {
         }
 
         const page = req.query.page ? Number(req.query.page) : 1;
-        const data = await getTeamHistory(teamId, page);
+        const data = await api.getTeamHistory(teamId, page);
 
         res.json(data);
     } catch (error) {
