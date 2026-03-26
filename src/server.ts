@@ -12,7 +12,8 @@ import { swaggerSpec } from './utils/swagger';
 const app = express();
 
 app.use(express.json());
-app.use(cors());
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call
+app.use(cors() as unknown as express.RequestHandler);
 // prefixo da API
 app.use("/api", matchRoutes);
 app.use("/api", playerRoutes);
