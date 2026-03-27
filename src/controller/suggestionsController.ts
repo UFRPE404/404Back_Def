@@ -14,15 +14,23 @@ import { getSuggestions, getBestOfDay, getDreamBets, getFeaturedMatchIds } from 
  *   get:
  *     summary: Retorna todas as sugestões de apostas do dia
  *     tags: [Suggestions]
+ *     parameters:
+ *       - in: query
+ *         name: day
+ *         schema:
+ *           type: string
+ *           example: "20260327"
+ *         description: Dia no formato YYYYMMDD. Se omitido, usa hoje.
  *     responses:
  *       200:
  *         description: Lista de sugestões geradas por IA ou heurística
  *       500:
  *         description: Erro ao gerar sugestões
  */
-export const getAllSuggestions = async (_req: Request, res: Response) => {
+export const getAllSuggestions = async (req: Request, res: Response) => {
     try {
-        const suggestions = await getSuggestions();
+        const day = typeof req.query.day === "string" ? req.query.day : undefined;
+        const suggestions = await getSuggestions(day);
         res.status(200).json(suggestions);
     } catch (error) {
         console.error("Erro ao buscar sugestões:", error);

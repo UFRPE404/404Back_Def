@@ -51,6 +51,7 @@ async function withRetry<T>(fn: () => Promise<T>, context: string): Promise<T> {
 
 // ─── Endpoints ───────────────────────────
 
+
 export const getLiveEvents = async () => {
     return withRetry(async () => {
         const response = await axios.get(`${BASE_URL}/events/inplay`, {
@@ -188,3 +189,5 @@ export const getEventView = async (eventId: string) => {
         return null;
     }
 };
+
+

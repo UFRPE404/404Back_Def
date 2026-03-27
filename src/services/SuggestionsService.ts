@@ -772,27 +772,40 @@ async function fetchNextDayMatches(): Promise<any[]> {
 }
 
 // ─── Função principal ───────────────────
-export async function getSuggestions(): Promise<Suggestion[]> {
-    if (isCacheValid()) {
-        console.log(`[Suggestions] Cache: ${suggestionsCache!.data.length} sugestões`);
-        return suggestionsCache!.data;
+export async function getSuggestions(day?: string): Promise<Suggestion[]> {
+    // Para um dia específico: ignora cache e lock — computa direto
+    if (!day) {
+        if (isCacheValid()) {
+            console.log(`[Suggestions] Cache: ${suggestionsCache!.data.length} sugestões`);
+            return suggestionsCache!.data;
+        }
+        if (fetchInProgress) return suggestionsCache?.data ?? [];
+        fetchInProgress = true;
     }
 
-    if (fetchInProgress) return suggestionsCache?.data ?? [];
-
-    fetchInProgress = true;
-    console.log("[Suggestions] Gerando sugestões com contexto real...");
+    console.log(`[Suggestions] Gerando sugestões${day ? ` para o dia ${day}` : " com contexto real"}...`);
 
     try {
-        // 1. Buscar todos os jogos próximos (hoje)
-        let { matches: allMatches } = await getMatchesWithOdds();
-        console.log(`[Suggestions] ${allMatches.length} jogos totais encontrados (hoje)`);
+        // 1. Buscar jogos: dia específico (direto da API) ou hoje via MatchService
+        let allMatches: any[];
 
-        // 1.5 Se hoje não tem jogos, buscar próximos dias
-        if (allMatches.length === 0) {
-            console.log("[Suggestions] Sem jogos hoje — buscando próximos dias...");
-            allMatches = await fetchNextDayMatches();
-            console.log(`[Suggestions] ${allMatches.length} jogos de dias futuros encontrados`);
+        if (day) {
+            const rawGames = await getAllUpcomingForDay(day);
+            allMatches = rawGames
+                .filter((g: any) => !isVirtualMatch(g))
+                .map(mapRawGameToMatch);
+            console.log(`[Suggestions] ${allMatches.length} jogos encontrados para o dia ${day}`);
+        } else {
+            let { matches } = await getMatchesWithOdds();
+            allMatches = matches;
+            console.log(`[Suggestions] ${allMatches.length} jogos totais encontrados (hoje)`);
+
+            // 1.5 Se hoje não tem jogos, buscar próximos dias
+            if (allMatches.length === 0) {
+                console.log("[Suggestions] Sem jogos hoje — buscando próximos dias...");
+                allMatches = await fetchNextDayMatches();
+                console.log(`[Suggestions] ${allMatches.length} jogos de dias futuros encontrados`);
+            }
         }
 
         // 2. Tentar ligas alvo primeiro
@@ -828,13 +841,16 @@ export async function getSuggestions(): Promise<Suggestion[]> {
         }
 
         console.log(`[Suggestions] ${suggestions.length} sugestões geradas`);
-        suggestionsCache = { data: suggestions, timestamp: Date.now() };
+        // Só guarda em cache quando não é consulta de dia específico
+        if (!day) {
+            suggestionsCache = { data: suggestions, timestamp: Date.now() };
+        }
         return suggestions;
     } catch (err) {
         console.error("[Suggestions] Erro:", err);
-        return suggestionsCache?.data ?? [];
+        return day ? [] : (suggestionsCache?.data ?? []);
     } finally {
-        fetchInProgress = false;
+        if (!day) fetchInProgress = false;
     }
 }
 
