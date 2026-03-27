@@ -187,6 +187,21 @@ export const getTeamHistory = async (teamId: string, page = 1) => {
 };
 
 /**
+ * Busca os dados e stats em tempo real de um jogo ao vivo pelo event_id.
+ * O endpoint inplay não filtra por event_id, então filtramos manualmente.
+ */
+export const getLiveEventById = async (eventId: string) => {
+    return withRetry(async () => {
+        const response = await axios.get(`${BASE_URL}/events/inplay`, {
+            params: { token: TOKEN, sport_id: 1 },
+            timeout: API_TIMEOUT,
+        });
+        const results: any[] = response.data.results ?? [];
+        return results.find((e: any) => String(e.id) === String(eventId)) ?? null;
+    }, `getLiveEventById(${eventId})`);
+};
+
+/**
  * Busca os dados de uma partida pelo event_id, incluindo IDs dos times.
  */
 export const getEventView = async (eventId: string) => {

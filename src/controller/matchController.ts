@@ -4,6 +4,7 @@ import { getEndedEvents } from "../services/betsApiService";
 import { getUpcomingEvents } from "../services/betsApiService";
 import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
 import { getMatchHistoric } from "../services/HistoricService";
+import { getMatchLiveStats } from "../services/LiveStatsService";
 
 /**
  * @swagger
@@ -228,5 +229,18 @@ export const getMatchHistoricHandler = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error(`[Historic] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
         res.status(500).json({ error: "Erro ao buscar histórico" });
+    }
+};
+
+export const getMatchLiveStatsHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getMatchLiveStats(eventId);
+        if (!data) { res.status(404).json({ error: "Estatísticas ao vivo não disponíveis para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
     }
 };

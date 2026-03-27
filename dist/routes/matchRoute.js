@@ -12,5 +12,6 @@ router.get("/match/:eventId/odds", matchController_1.getMatchOdds);
 router.get("/match/:eventId/full-odds", matchController_1.getMatchFullOdds);
 router.get("/match/:eventId/h2h", matchController_1.getMatchH2H);
 router.get("/match/:eventId/historic", matchController_1.getMatchHistoricHandler);
+router.get("/match/:eventId/live-stats", matchController_1.getMatchLiveStatsHandler);
 exports.default = router;
 //# sourceMappingURL=matchRoute.js.map

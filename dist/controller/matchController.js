@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMatchHistoricHandler = exports.getMatchH2HBulk = exports.getMatchH2H = exports.getMatchFullOdds = exports.getMatchOdds = exports.getUpcomingMatches = exports.getMatches = exports.getEndedMatches = exports.getLiveMatches = void 0;
+exports.getMatchLiveStatsHandler = exports.getMatchHistoricHandler = exports.getMatchH2HBulk = exports.getMatchH2H = exports.getMatchFullOdds = exports.getMatchOdds = exports.getUpcomingMatches = exports.getMatches = exports.getEndedMatches = exports.getLiveMatches = void 0;
 const betsApiService_1 = require("../services/betsApiService");
 const betsApiService_2 = require("../services/betsApiService");
 const betsApiService_3 = require("../services/betsApiService");
 const MatchService_1 = require("../services/MatchService");
 const HistoricService_1 = require("../services/HistoricService");
+const LiveStatsService_1 = require("../services/LiveStatsService");
 /**
  * @swagger
  * tags:
@@ -258,4 +259,24 @@ const getMatchHistoricHandler = async (req, res) => {
     }
 };
 exports.getMatchHistoricHandler = getMatchHistoricHandler;
+const getMatchLiveStatsHandler = async (req, res) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) {
+            res.status(400).json({ error: "eventId obrigatório" });
+            return;
+        }
+        const data = await (0, LiveStatsService_1.getMatchLiveStats)(eventId);
+        if (!data) {
+            res.status(404).json({ error: "Estatísticas ao vivo não disponíveis para esta partida" });
+            return;
+        }
+        res.status(200).json(data);
+    }
+    catch (error) {
+        console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
+    }
+};
+exports.getMatchLiveStatsHandler = getMatchLiveStatsHandler;
 //# sourceMappingURL=matchController.js.map

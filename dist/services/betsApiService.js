@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getEventView = exports.getTeamHistory = exports.searchPlayer = exports.getEventLineup = exports.getPlayerEvents = exports.getEventOdds = exports.getAllUpcomingForDay = exports.getUpcomingEvents = exports.getEndedEvents = exports.getLiveEvents = void 0;
+exports.getEventView = exports.getLiveEventById = exports.getTeamHistory = exports.searchPlayer = exports.getEventLineup = exports.getPlayerEvents = exports.getEventOdds = exports.getAllUpcomingForDay = exports.getUpcomingEvents = exports.getEndedEvents = exports.getLiveEvents = void 0;
 const axios_1 = __importStar(require("axios"));
 const BASE_URL = 'https://api.b365api.com/v3';
 const TOKEN = process.env.BETS_API_TOKEN;
@@ -215,6 +215,21 @@ const getTeamHistory = async (teamId, page = 1) => {
     }, `getTeamHistory(${teamId}, p${page})`);
 };
 exports.getTeamHistory = getTeamHistory;
+/**
+ * Busca os dados e stats em tempo real de um jogo ao vivo pelo event_id.
+ * O endpoint inplay não filtra por event_id, então filtramos manualmente.
+ */
+const getLiveEventById = async (eventId) => {
+    return withRetry(async () => {
+        const response = await axios_1.default.get(`${BASE_URL}/events/inplay`, {
+            params: { token: TOKEN, sport_id: 1 },
+            timeout: API_TIMEOUT,
+        });
+        const results = response.data.results ?? [];
+        return results.find((e) => String(e.id) === String(eventId)) ?? null;
+    }, `getLiveEventById(${eventId})`);
+};
+exports.getLiveEventById = getLiveEventById;
 /**
  * Busca os dados de uma partida pelo event_id, incluindo IDs dos times.
  */
