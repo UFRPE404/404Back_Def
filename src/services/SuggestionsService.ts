@@ -33,6 +33,7 @@ export interface Suggestion {
     confidence: "alta" | "media" | "baixa";
     reasoning: string;
     type: "best" | "dream";
+    matchDate?: string;
     homeContext?: TeamContext;
     awayContext?: TeamContext;
 }
@@ -563,6 +564,7 @@ ${summaries}
                     confidence: p.confidence,
                     reasoning: p.reasoning,
                     type: p.type,
+                    matchDate: match.date,
                     homeContext: match.homeContext,
                     awayContext: match.awayContext,
                 };
@@ -607,6 +609,7 @@ function generateHeuristicSuggestions(matches: EnrichedMatch[]): Suggestion[] {
                 confidence: homeProb > 0.60 ? "alta" : "media",
                 reasoning: parts.join(", ") + ".",
                 type: "best",
+                matchDate: match.date,
                 homeContext: h,
                 awayContext: a,
             });
@@ -628,6 +631,7 @@ function generateHeuristicSuggestions(matches: EnrichedMatch[]): Suggestion[] {
                 confidence: awayProb > 0.60 ? "alta" : "media",
                 reasoning: parts.join(", ") + ".",
                 type: "best",
+                matchDate: match.date,
                 homeContext: h,
                 awayContext: a,
             });
@@ -645,6 +649,7 @@ function generateHeuristicSuggestions(matches: EnrichedMatch[]): Suggestion[] {
                 reasoning: `Zebra em ${match.league} — ${match.away} com odds de ${awayOdd.toFixed(2)}.` +
                     (aStreak >= 2 ? ` Vem de ${aStreak} vitórias seguidas.` : ""),
                 type: "dream",
+                matchDate: match.date,
                 homeContext: h,
                 awayContext: a,
             });
@@ -668,6 +673,7 @@ function generateHeuristicSuggestions(matches: EnrichedMatch[]): Suggestion[] {
                 reasoning: `Jogo equilibrado em ${match.league}. ${bestTeam} com ${bestCtx.winRate}% de vitórias nos últimos jogos` +
                     (streak >= 2 ? ` e ${streak} vitórias seguidas` : "") + ".",
                 type: "best",
+                matchDate: match.date,
                 homeContext: h,
                 awayContext: a,
             });
