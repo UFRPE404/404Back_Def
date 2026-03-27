@@ -1,44 +1,78 @@
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 
 const BASE_URL = 'https://api.b365api.com/v3'
 const TOKEN = process.env.BETS_API_TOKEN
 const API_TIMEOUT = 30_000; // 30 segundos
 
-export const getLiveEvents = async () => {
-    try {
-        const response = await axios.get(`${BASE_URL}/events/inplay`, {
-            params: {
-                token: TOKEN,
-                sport_id: 1 // id do futebol na doc 
-            },
-            timeout: API_TIMEOUT,
-        })
-        
-        return response.data.results;
-    } catch (error){
-    console.log("Erro na API: ", error);
-    throw error;
-    }
-};
+// ─── Retry helper ────────────────────────
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [2000, 5000, 10000]; // backoff crescente
 
-export const getEndedEvents = async () => {
-    try {
-        const response = await axios.get(`${BASE_URL}/events/ended`, {
-            params: {
-                token: TOKEN,
-                sport_id: 1
-            },
-            timeout: API_TIMEOUT,
-        })
-        return response.data.results
-    } catch (error) {
-        console.log("Erro na API: ", error);
-        throw error;
+function isRetryable(error: unknown): boolean {
+    if (error instanceof AxiosError) {
+        const status = error.response?.status;
+        // 502, 503, 504 = server issues temporários; ECONNRESET, ETIMEDOUT = rede
+        if (status && status >= 500) return true;
+        if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') return true;
+    }
+    return false;
+}
+
+function logError(context: string, error: unknown) {
+    if (error instanceof AxiosError) {
+        const status = error.response?.status;
+        const statusText = error.response?.statusText;
+        const url = error.config?.url;
+        console.error(`[API] ${context}: ${status} ${statusText} — ${url} (${error.code ?? 'unknown'})`);
+    } else {
+        console.error(`[API] ${context}:`, (error as any)?.message ?? error);
     }
 }
 
+async function withRetry<T>(fn: () => Promise<T>, context: string): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            if (attempt < MAX_RETRIES && isRetryable(error)) {
+                const delay = RETRY_DELAYS[attempt] ?? 10000;
+                console.log(`[API] ${context}: tentativa ${attempt + 1}/${MAX_RETRIES} falhou, retry em ${delay / 1000}s...`);
+                await new Promise(r => setTimeout(r, delay));
+            } else {
+                break;
+            }
+        }
+    }
+    logError(context, lastError);
+    throw lastError;
+}
+
+// ─── Endpoints ───────────────────────────
+
+export const getLiveEvents = async () => {
+    return withRetry(async () => {
+        const response = await axios.get(`${BASE_URL}/events/inplay`, {
+            params: { token: TOKEN, sport_id: 1 },
+            timeout: API_TIMEOUT,
+        });
+        return response.data.results;
+    }, 'getLiveEvents');
+};
+
+export const getEndedEvents = async () => {
+    return withRetry(async () => {
+        const response = await axios.get(`${BASE_URL}/events/ended`, {
+            params: { token: TOKEN, sport_id: 1 },
+            timeout: API_TIMEOUT,
+        });
+        return response.data.results;
+    }, 'getEndedEvents');
+};
+
 export const getUpcomingEvents = async (day?: string, page = 1) => {
-    try {
+    return withRetry(async () => {
         const params: Record<string, any> = {
             token: TOKEN,
             sport_id: 1,
@@ -47,18 +81,14 @@ export const getUpcomingEvents = async (day?: string, page = 1) => {
         if (day) params.day = day;
 
         const response = await axios.get(`${BASE_URL}/events/upcoming`, { params, timeout: API_TIMEOUT });
-
         return response.data;
-    } catch (error) {
-        console.log("Erro ao buscar upcoming:", error);
-        throw error;
-    }
+    }, `getUpcoming(${day ?? 'all'}, p${page})`);
 };
 
 /**
  * Busca TODAS as páginas de upcoming para um dia, seguindo paginação da API.
  */
-const MAX_PAGES_PER_DAY = 5; // limita para não travar
+const MAX_PAGES_PER_DAY = 5;
 
 export const getAllUpcomingForDay = async (day?: string): Promise<any[]> => {
     const allResults: any[] = [];
@@ -74,7 +104,7 @@ export const getAllUpcomingForDay = async (day?: string): Promise<any[]> => {
             if (!pager || page >= pager.total) break;
             page++;
         } catch {
-            console.log(`[API] Erro na página ${page} do dia ${day}, parando paginação`);
+            console.log(`[API] Paginação parou na página ${page} do dia ${day}`);
             break;
         }
     }
@@ -83,66 +113,42 @@ export const getAllUpcomingForDay = async (day?: string): Promise<any[]> => {
 };
 
 export const getEventOdds = async (eventId: string) => {
-    try {
+    return withRetry(async () => {
         const response = await axios.get(`https://api.b365api.com/v2/event/odds`, {
-            params: {
-                token: TOKEN,
-                event_id: eventId
-            },
+            params: { token: TOKEN, event_id: eventId },
             timeout: API_TIMEOUT,
-        })
-
+        });
         return response.data.results;
-    } catch (error) {
-        console.log("Erro ao buscar odds:", error);
-        throw error;
-    }
+    }, `getEventOdds(${eventId})`);
 };
 
 /**
  * Busca os dados e estatísticas de um jogador pelo ID.
- * Endpoint: https://api.b365api.com/v1/player
  */
 export const getPlayerEvents = async (playerId: string) => {
-    try {
+    return withRetry(async () => {
         const response = await axios.get(`https://api.b365api.com/v1/player`, {
-            params: {
-                token: TOKEN,
-                player_id: playerId,
-            }
+            params: { token: TOKEN, player_id: playerId },
         });
-
         return response.data;
-    } catch (error) {
-        console.log("Erro ao buscar dados do jogador:", error);
-        throw error;
-    }
+    }, `getPlayerEvents(${playerId})`);
 };
 
 /**
  * Busca o lineup (escalação) de uma partida pelo event_id.
- * Retorna os jogadores de ambos os times com seus IDs.
  */
 export const getEventLineup = async (eventId: string) => {
-    try {
+    return withRetry(async () => {
         const response = await axios.get(`https://api.b365api.com/v1/event/lineup`, {
-            params: {
-                token: TOKEN,
-                event_id: eventId,
-            }
+            params: { token: TOKEN, event_id: eventId },
         });
-
         return response.data.results;
-    } catch (error) {
-        console.log("Erro ao buscar lineup:", error);
-        throw error;
-    }
+    }, `getEventLineup(${eventId})`);
 };
 
 /**
  * Busca jogadores pelo nome.
  * NOTA: A b365api não possui endpoint de busca por nome.
- * Use GET /api/match/{eventId}/lineup para obter IDs de jogadores de uma partida.
  */
 export const searchPlayer = async (_name: string): Promise<never> => {
     throw new Error("A b365api não suporta busca de jogador por nome. Use o endpoint /api/match/{eventId}/lineup para obter IDs dos jogadores.");
@@ -150,11 +156,9 @@ export const searchPlayer = async (_name: string): Promise<never> => {
 
 /**
  * Busca o histórico de partidas encerradas de um time pelo ID.
- * @param teamId  - ID do time na b365api
- * @param page    - Página de resultados (padrão: 1)
  */
 export const getTeamHistory = async (teamId: string, page = 1) => {
-    try {
+    return withRetry(async () => {
         const response = await axios.get(`${BASE_URL}/events/ended`, {
             params: {
                 token: TOKEN,
@@ -164,27 +168,23 @@ export const getTeamHistory = async (teamId: string, page = 1) => {
             },
             timeout: API_TIMEOUT,
         });
-
         return response.data;
-    } catch (error) {
-        console.log(`Erro ao buscar histórico do time ${teamId} (page ${page}):`, (error as any)?.message ?? error);
-        throw error;
-    }
+    }, `getTeamHistory(${teamId}, p${page})`);
 };
 
 /**
  * Busca os dados de uma partida pelo event_id, incluindo IDs dos times.
- * Endpoint: GET /v1/event/view
  */
 export const getEventView = async (eventId: string) => {
     try {
-        const response = await axios.get(`https://api.b365api.com/v1/event/view`, {
-            params: { token: TOKEN, event_id: eventId },
-            timeout: API_TIMEOUT,
-        });
-        return response.data.results?.[0] ?? null;
-    } catch (error) {
-        console.log("Erro ao buscar event view:", error);
+        return await withRetry(async () => {
+            const response = await axios.get(`https://api.b365api.com/v1/event/view`, {
+                params: { token: TOKEN, event_id: eventId },
+                timeout: API_TIMEOUT,
+            });
+            return response.data.results?.[0] ?? null;
+        }, `getEventView(${eventId})`);
+    } catch {
         return null;
     }
 };

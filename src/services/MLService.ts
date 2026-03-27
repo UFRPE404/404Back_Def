@@ -50,3 +50,11 @@ export async function mlPredictValueBets(body: {
     const { data } = await mlClient.post("/ml/predict/value-bets", body);
     return data;
 }
+
+export async function mlPredictTips(body: {
+    home_team_id: string;
+    away_team_id: string;
+}): Promise<unknown> {
+    const { data } = await mlClient.post("/ml/predict/tips", body);
+    return data;
+}

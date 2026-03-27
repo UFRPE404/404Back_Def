@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 
 class PlayerPredictionRequest(BaseModel):
@@ -41,6 +41,8 @@ class PlayerPredictionResponse(BaseModel):
 
 
 class MatchPredictionResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
     home_team_id: str
     home_team_name: str
     away_team_id: str
@@ -55,6 +57,10 @@ class MatchPredictionResponse(BaseModel):
     over_2_5_prob: float
     """Probabilidade de mais de 2.5 gols."""
     insights: list[str]
+    home_stats_last_10: Optional[dict[str, Any]] = None
+    """Estatísticas dos últimos 10 jogos do time da casa."""
+    away_stats_last_10: Optional[dict[str, Any]] = None
+    """Estatísticas dos últimos 10 jogos do visitante."""
 
 
 class ValueBetResponse(BaseModel):
@@ -64,6 +70,22 @@ class ValueBetResponse(BaseModel):
     """Lista de apostas com valor identificadas."""
     risk_analysis: str
     """Análise geral de risco."""
+
+
+class BetTipsResponse(BaseModel):
+    """Resposta do endpoint /ml/predict/tips com análise completa."""
+    home_team: dict[str, Any]
+    """Info + stats últimos 10 jogos do time da casa."""
+    away_team: dict[str, Any]
+    """Info + stats últimos 10 jogos do visitante."""
+    predictions: dict[str, float]
+    """Probabilidades calculadas (1X2, BTTS, O/U 2.5, gols esperados)."""
+    market_odds: Optional[dict[str, Any]] = None
+    """Odds atuais do mercado (BetsAPI), se disponíveis."""
+    ai_analysis: str
+    """Frase de análise gerada por IA (Groq/Llama) baseada nas estatísticas."""
+    insights: list[str]
+    """Insights automáticos gerados pelo modelo."""
 
 
 class TrainResponse(BaseModel):

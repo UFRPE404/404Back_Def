@@ -6,6 +6,7 @@ import {
     mlPredictPlayer,
     mlPredictMatch,
     mlPredictValueBets,
+    mlPredictTips,
 } from "../services/MLService";
 
 export const getMLHealth = async (_req: Request, res: Response) => {
@@ -86,6 +87,22 @@ export const postMLValueBets = async (req: Request, res: Response) => {
             minutes_expected,
             odds,
         });
+        res.json(data);
+    } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status ?? 503;
+        const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Erro no serviço ML";
+        res.status(status).json({ error: message });
+    }
+};
+
+export const postMLPredictTips = async (req: Request, res: Response) => {
+    try {
+        const { home_team_id, away_team_id } = req.body;
+        if (!home_team_id || !away_team_id) {
+            res.status(400).json({ error: "home_team_id e away_team_id são obrigatórios" });
+            return;
+        }
+        const data = await mlPredictTips({ home_team_id, away_team_id });
         res.json(data);
     } catch (err: unknown) {
         const status = (err as { response?: { status?: number } })?.response?.status ?? 503;

@@ -337,6 +337,8 @@ function mapGameToResponse(game: any) {
         id: String(game.id),
         home: game.home?.name,
         away: game.away?.name,
+        homeId: String(game.home?.id ?? ""),
+        awayId: String(game.away?.id ?? ""),
         league: game.league?.name,
         sport_id: game.sport_id,
         time: game.time,

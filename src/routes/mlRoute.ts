@@ -6,6 +6,7 @@ import {
     postMLPredictPlayer,
     postMLPredictMatch,
     postMLValueBets,
+    postMLPredictTips,
 } from "../controller/mlController";
 
 const router = Router();
@@ -119,5 +120,30 @@ router.post("/ml/predict/match", postMLPredictMatch);
  *                 description: "Odds oferecidas. Ex: {\"goals_over_0.5\": 1.40}"
  */
 router.post("/ml/predict/value-bets", postMLValueBets);
+
+/**
+ * @swagger
+ * /api/ml/predict/tips:
+ *   post:
+ *     summary: Análise completa de partida com IA (últimos 10 jogos + Groq/Llama)
+ *     tags: [ML]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - home_team_id
+ *               - away_team_id
+ *             properties:
+ *               home_team_id:
+ *                 type: string
+ *                 description: Nome do time da casa
+ *               away_team_id:
+ *                 type: string
+ *                 description: Nome do time visitante
+ */
+router.post("/ml/predict/tips", postMLPredictTips);
 
 export default router;

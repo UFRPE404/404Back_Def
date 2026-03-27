@@ -5,6 +5,7 @@ import matchRoutes from "./routes/matchRoute";
 import playerRoutes from "./routes/playerRoute";
 import teamRoutes from "./routes/teamRoute";
 import suggestionsRoutes from "./routes/suggestionsRoute";
+import mlRoutes from "./routes/mlRoute";
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './utils/swagger';
 
@@ -19,6 +20,7 @@ app.use("/api", matchRoutes);
 app.use("/api", playerRoutes);
 app.use("/api", teamRoutes);
 app.use("/api", suggestionsRoutes);
+app.use("/api", mlRoutes);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.listen(3000, () => {

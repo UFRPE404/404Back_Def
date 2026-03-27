@@ -9,3 +9,4 @@ pydantic
 statsbombpy
 pyarrow
 httpx
+python-dotenv

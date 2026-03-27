@@ -7,6 +7,7 @@ from app.schemas.schemas import (
     MatchPredictionResponse,
     ValueBetRequest,
     ValueBetResponse,
+    BetTipsResponse,
 )
 from app.models.player_predictor import predict_player
 from app.models.match_predictor import predict_match
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/ml", tags=["ML Predictions"])
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "ml-agent", "data_source": "StatsBomb Open Data"}
+    return {"status": "ok", "service": "ml-agent", "data_source": "BetsAPI + StatsBomb + Groq/Llama"}
 
 
 @router.get("/competitions")
@@ -62,7 +63,8 @@ def predict_player_endpoint(req: PlayerPredictionRequest):
 def predict_match_endpoint(req: MatchPredictionRequest):
     """
     Prediz o resultado de uma partida entre dois times.
-    Calcula probabilidades de vitória, empate, BTTS e Over/Under.
+    Busca os últimos 10 jogos de cada time via BetsAPI,
+    calcula médias, distribuições de Poisson e probabilidades.
     """
     try:
         result = predict_match(
@@ -74,11 +76,14 @@ def predict_match_endpoint(req: MatchPredictionRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/predict/tips")
+@router.post("/predict/tips", response_model=BetTipsResponse)
 def predict_tips_endpoint(req: MatchPredictionRequest):
     """
-    Gera sugestões de apostas detalhadas com explicações e contexto.
-    Analisa resultado, gols, BTTS, placar exato e combinadas.
+    Gera análise completa de uma partida com frase de IA:
+    1. Estatísticas dos últimos 10 jogos de cada time
+    2. Probabilidades via Poisson (1X2, BTTS, Over/Under)
+    3. Odds atuais do mercado
+    4. Análise IA gerada pelo Llama baseada nos dados
     """
     try:
         result = generate_match_tips(
@@ -90,7 +95,7 @@ def predict_tips_endpoint(req: MatchPredictionRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/predict/value-bets")
+@router.post("/predict/value-bets", response_model=ValueBetResponse)
 def predict_value_bets_endpoint(req: ValueBetRequest):
     """
     Detecta apostas de valor comparando probabilidades ML vs odds da casa.
