@@ -3,6 +3,7 @@ import { getLiveEvents } from "../services/betsApiService";
 import { getEndedEvents } from "../services/betsApiService";
 import { getUpcomingEvents } from "../services/betsApiService";
 import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
+import { getMatchHistoric } from "../services/HistoricService";
 
 /**
  * @swagger
@@ -186,5 +187,46 @@ export const getMatchH2HBulk = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error("[H2H-Bulk] Erro:", error?.message ?? error);
         res.status(500).json({ error: "Erro ao buscar H2H em lote" });
+    }
+};
+
+/**
+ * @swagger
+ * /api/match/{eventId}/historic:
+ *   get:
+ *     summary: Retorna o histórico recente dos dois times de uma partida
+ *     tags: [Matches]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *         description: Quantidade de jogos recentes por time
+ *     responses:
+ *       200:
+ *         description: Histórico dos times obtido com sucesso.
+ *       404:
+ *         description: Histórico não encontrado para esta partida.
+ *       500:
+ *         description: Erro ao buscar histórico.
+ */
+export const getMatchHistoricHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const limit = parseInt(req.query.limit as string) || 5;
+        const data = await getMatchHistoric(eventId, limit);
+        if (!data) { res.status(404).json({ error: "Histórico não encontrado para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[Historic] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar histórico" });
     }
 };

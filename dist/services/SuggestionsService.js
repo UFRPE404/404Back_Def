@@ -131,46 +131,51 @@ async function getTeamContext(teamId, teamName, isHome) {
     };
 }
 async function fetchEnrichedMatches(matches) {
-    // Filtra pelas ligas alvo e pega os primeiros 10
-    const targetMatches = matches
-        .filter(m => isTargetLeague(m.league || ""))
-        .slice(0, 10);
-    console.log(`[Suggestions] ${targetMatches.length} jogos das ligas alvo encontrados`);
-    if (targetMatches.length === 0)
-        return [];
+    // 1. Limpeza inicial
+    const cleanMatches = matches.filter(m => {
+        const league = (m.league || "").toLowerCase();
+        return !league.includes("reserves") && !league.includes("women");
+    });
+    // 2. Priorização: Brasil/Nordeste vs Outras Ligas
+    const priorityMatches = cleanMatches.filter(m => {
+        const leagueName = (m.league || "").toLowerCase();
+        return leagueName.includes("nordeste") ||
+            leagueName.includes("brazil") ||
+            leagueName.includes("brasil") ||
+            leagueName.includes("northeast");
+    });
+    const otherMatches = cleanMatches.filter(m => isTargetLeague(m.league || "") && !priorityMatches.includes(m));
+    // 3. Pegamos uma amostra maior (40 jogos) para filtrar os que têm odd depois
+    const candidateMatches = [...priorityMatches, ...otherMatches].slice(0, 40);
+    console.log(`[Suggestions] Analisando ${candidateMatches.length} candidatos para encontrar jogos com mercado aberto...`);
     const enriched = [];
-    // Processa em batches de 2 para não sobrecarregar a API
-    for (let i = 0; i < targetMatches.length; i += 2) {
-        const batch = targetMatches.slice(i, i + 2);
+    // 4. Processamento em Batches (2 por vez para não travar)
+    for (let i = 0; i < candidateMatches.length; i += 2) {
+        const batch = candidateMatches.slice(i, i + 2);
         const batchResults = await Promise.allSettled(batch.map(async (match) => {
             const matchId = String(match.id);
-            const homeName = match.home || match.teamA;
-            const awayName = match.away || match.teamB;
-            const homeId = String(match.homeId || match.home_id || "");
-            const awayId = String(match.awayId || match.away_id || "");
-            // Buscar odds
+            const homeName = match.home || match.teamA || "Time Casa";
+            const awayName = match.away || match.teamB || "Time Fora";
+            // Busca de Odds
             let simpleOdds = match.simpleOdds;
-            if (!simpleOdds || simpleOdds[0] === null) {
+            if (!simpleOdds || simpleOdds[0] === null || simpleOdds[0] === 0) {
                 try {
                     const oddsResult = await (0, MatchService_1.getOddsForMatch)(matchId);
                     simpleOdds = oddsResult.simpleOdds;
                 }
-                catch { /* sem odds */ }
+                catch {
+                    simpleOdds = [0, 0, 0];
+                }
             }
-            if (!simpleOdds || simpleOdds[0] === null)
+            // FILTRO CRÍTICO: Se não tiver odd, descarta aqui para economizar processamento de H2H
+            if (!simpleOdds || simpleOdds[0] <= 0) {
                 return null;
-            // Buscar contexto dos dois times em paralelo
+            }
+            const homeId = String(match.homeId || match.home_id || "");
+            const awayId = String(match.awayId || match.away_id || "");
             const [homeCtx, awayCtx] = await Promise.all([
-                homeId ? getTeamContext(homeId, homeName, true) : Promise.resolve({
-                    name: homeName, id: homeId, recentResults: [], formString: "",
-                    goalsScored: [], goalsConceded: [], avgGoalsScored: 0,
-                    avgGoalsConceded: 0, winRate: 0, cleanSheets: 0, isHome: true,
-                }),
-                awayId ? getTeamContext(awayId, awayName, false) : Promise.resolve({
-                    name: awayName, id: awayId, recentResults: [], formString: "",
-                    goalsScored: [], goalsConceded: [], avgGoalsScored: 0,
-                    avgGoalsConceded: 0, winRate: 0, cleanSheets: 0, isHome: false,
-                }),
+                homeId ? getTeamContext(homeId, homeName, true) : Promise.resolve(null),
+                awayId ? getTeamContext(awayId, awayName, false) : Promise.resolve(null)
             ]);
             return {
                 id: matchId,
@@ -181,16 +186,46 @@ async function fetchEnrichedMatches(matches) {
                 league: match.league || "",
                 date: match.date || "",
                 simpleOdds: simpleOdds,
-                homeContext: homeCtx,
-                awayContext: awayCtx,
+                homeContext: {
+                    name: homeCtx?.name || homeName,
+                    id: homeId,
+                    recentResults: homeCtx?.recentResults || [],
+                    formString: homeCtx?.formString || "",
+                    goalsScored: homeCtx?.goalsScored || [],
+                    goalsConceded: homeCtx?.goalsConceded || [],
+                    avgGoalsScored: homeCtx?.avgGoalsScored || 0,
+                    avgGoalsConceded: homeCtx?.avgGoalsConceded || 0,
+                    winRate: homeCtx?.winRate || 0,
+                    cleanSheets: homeCtx?.cleanSheets || 0,
+                    isHome: true
+                },
+                awayContext: {
+                    name: awayCtx?.name || awayName,
+                    id: awayId,
+                    recentResults: awayCtx?.recentResults || [],
+                    formString: awayCtx?.formString || "",
+                    goalsScored: awayCtx?.goalsScored || [],
+                    goalsConceded: awayCtx?.goalsConceded || [],
+                    avgGoalsScored: awayCtx?.avgGoalsScored || 0,
+                    avgGoalsConceded: awayCtx?.avgGoalsConceded || 0,
+                    winRate: awayCtx?.winRate || 0,
+                    cleanSheets: awayCtx?.cleanSheets || 0,
+                    isHome: false
+                },
             };
         }));
         for (const result of batchResults) {
-            if (result.status === "fulfilled" && result.value) {
+            if (result.status === "fulfilled" && result.value !== null) {
                 enriched.push(result.value);
             }
+            // Se já achamos 10 jogos bons com odds, podemos parar de processar
+            if (enriched.length >= 10)
+                break;
         }
+        if (enriched.length >= 10)
+            break;
     }
+    console.log(`[Suggestions] Finalizado com ${enriched.length} jogos que possuem Odds e Contexto.`);
     return enriched;
 }
 // ─── Fallback: Groq escolhe os melhores jogos do dia ──

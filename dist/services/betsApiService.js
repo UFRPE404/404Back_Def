@@ -147,10 +147,21 @@ exports.getAllUpcomingForDay = getAllUpcomingForDay;
 const getEventOdds = async (eventId) => {
     return withRetry(async () => {
         const response = await axios_1.default.get(`https://api.b365api.com/v2/event/odds`, {
-            params: { token: TOKEN, event_id: eventId },
+            params: {
+                token: TOKEN,
+                event_id: eventId,
+                source: 'bet365' // Importante especificar a fonte na B365API
+            },
             timeout: API_TIMEOUT,
         });
-        return response.data.results;
+        // A b365api retorna os mercados dentro de response.data.results.odds
+        // O mercado 1x2 (Full Time Result) geralmente é o ID "1_1"
+        const allOdds = response.data.results?.odds;
+        if (!allOdds) {
+            console.warn(`[Odds] Nenhuma odd encontrada no nó 'results.odds' para o evento ${eventId}`);
+            return null;
+        }
+        return allOdds;
     }, `getEventOdds(${eventId})`);
 };
 exports.getEventOdds = getEventOdds;

@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMatchH2HBulk = exports.getMatchH2H = exports.getMatchFullOdds = exports.getMatchOdds = exports.getUpcomingMatches = exports.getMatches = exports.getEndedMatches = exports.getLiveMatches = void 0;
+exports.getMatchHistoricHandler = exports.getMatchH2HBulk = exports.getMatchH2H = exports.getMatchFullOdds = exports.getMatchOdds = exports.getUpcomingMatches = exports.getMatches = exports.getEndedMatches = exports.getLiveMatches = void 0;
 const betsApiService_1 = require("../services/betsApiService");
 const betsApiService_2 = require("../services/betsApiService");
 const betsApiService_3 = require("../services/betsApiService");
 const MatchService_1 = require("../services/MatchService");
+const HistoricService_1 = require("../services/HistoricService");
 /**
  * @swagger
  * tags:
@@ -209,4 +210,52 @@ const getMatchH2HBulk = async (req, res) => {
     }
 };
 exports.getMatchH2HBulk = getMatchH2HBulk;
+/**
+ * @swagger
+ * /api/match/{eventId}/historic:
+ *   get:
+ *     summary: Retorna o histórico recente dos dois times de uma partida
+ *     tags: [Matches]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *         description: Quantidade de jogos recentes por time
+ *     responses:
+ *       200:
+ *         description: Histórico dos times obtido com sucesso.
+ *       404:
+ *         description: Histórico não encontrado para esta partida.
+ *       500:
+ *         description: Erro ao buscar histórico.
+ */
+const getMatchHistoricHandler = async (req, res) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) {
+            res.status(400).json({ error: "eventId obrigatório" });
+            return;
+        }
+        const limit = parseInt(req.query.limit) || 5;
+        const data = await (0, HistoricService_1.getMatchHistoric)(eventId, limit);
+        if (!data) {
+            res.status(404).json({ error: "Histórico não encontrado para esta partida" });
+            return;
+        }
+        res.status(200).json(data);
+    }
+    catch (error) {
+        console.error(`[Historic] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar histórico" });
+    }
+};
+exports.getMatchHistoricHandler = getMatchHistoricHandler;
 //# sourceMappingURL=matchController.js.map

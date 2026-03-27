@@ -30,20 +30,40 @@ const filterOdds = (rawOdds) => {
     return Object.keys(filtered).length > 0 ? filtered : null;
 };
 function extractSimpleOdds(filteredOdds) {
-    const resultadoFinal = filteredOdds?.["Resultado Final"];
-    if (!resultadoFinal)
+    // 1. Tenta buscar pelo ID padrão da Bet365 ("1_1") ou pelo seu nome customizado
+    const marketData = filteredOdds?.["1_1"] || filteredOdds?.["Resultado Final"];
+    if (!marketData) {
+        // Se não achou o mercado principal, vamos varrer o objeto para ver se ele existe com outro nome
+        // Isso ajuda se o seu filterOdds tiver renomeado a chave
         return null;
-    for (const bookmakerData of Object.values(resultadoFinal)) {
-        const entries = bookmakerData;
-        if (entries && entries.length > 0) {
-            const latest = entries[entries.length - 1];
-            if (latest.home_od && latest.draw_od && latest.away_od) {
-                return [
-                    parseFloat(latest.home_od),
-                    parseFloat(latest.draw_od),
-                    parseFloat(latest.away_od),
-                ];
+    }
+    // 2. A Bet365 API retorna um array de atualizações de odds dentro do mercado
+    // Se for um Objeto (vários bookmakers), iteramos sobre eles
+    if (!Array.isArray(marketData)) {
+        for (const bookmakerData of Object.values(marketData)) {
+            const entries = bookmakerData;
+            if (entries && entries.length > 0) {
+                // Pegamos o primeiro (índice 0), que na Bet365 costuma ser o 'Main' ou 'Initial'
+                const latest = entries[0];
+                if (latest.home_od && latest.draw_od && latest.away_od) {
+                    return [
+                        parseFloat(latest.home_od),
+                        parseFloat(latest.draw_od),
+                        parseFloat(latest.away_od),
+                    ];
+                }
             }
+        }
+    }
+    // 3. Caso o marketData já seja o array direto (comum após passar por alguns filtros)
+    else if (marketData.length > 0) {
+        const latest = marketData[0];
+        if (latest.home_od && latest.draw_od && latest.away_od) {
+            return [
+                parseFloat(latest.home_od),
+                parseFloat(latest.draw_od),
+                parseFloat(latest.away_od),
+            ];
         }
     }
     return null;
@@ -324,10 +344,22 @@ const getMatchesWithOdds = async () => {
 };
 exports.getMatchesWithOdds = getMatchesWithOdds;
 const getOddsForMatch = async (eventId) => {
-    const rawOdds = await (0, betsApiService_1.getEventOdds)(eventId);
-    const odds = filterOdds(rawOdds);
-    const simpleOdds = extractSimpleOdds(odds);
-    return { odds, simpleOdds };
+    try {
+        const rawOdds = await (0, betsApiService_1.getEventOdds)(eventId);
+        // Se a API retornar algo vazio ou erro aqui, o filterOdds vai quebrar lá na frente
+        if (!rawOdds || (Array.isArray(rawOdds) && rawOdds.length === 0)) {
+            console.warn(`[Odds] Evento ${eventId} sem mercados disponíveis no provedor.`);
+            return { odds: [], simpleOdds: [null, null, null] };
+        }
+        const odds = filterOdds(rawOdds);
+        const simpleOdds = extractSimpleOdds(odds);
+        return { odds, simpleOdds };
+    }
+    catch (error) {
+        // AQUI você vai descobrir se é erro de API (401, 404, 429) ou erro de código
+        console.error(`[Odds] Erro crítico ao buscar odds para o evento ${eventId}:`, error);
+        return { odds: [], simpleOdds: [null, null, null] };
+    }
 };
 exports.getOddsForMatch = getOddsForMatch;
 // ─── Full Odds (análise de partida) ────────────────────────
