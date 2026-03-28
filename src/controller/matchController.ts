@@ -1,0 +1,246 @@
+import { Request, Response } from "express";
+import { getLiveEvents } from "../services/betsApiService";
+import { getEndedEvents } from "../services/betsApiService";
+import { getUpcomingEvents } from "../services/betsApiService";
+import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
+import { getMatchHistoric } from "../services/HistoricService";
+import { getMatchLiveStats } from "../services/LiveStatsService";
+
+/**
+ * @swagger
+ * tags:
+ *   name: Matches
+ *   description: Endpoints de partidas de futebol
+ */
+
+/**
+ * @swagger
+ * /api/live:
+ *   get:
+ *     summary: Retorna partidas ao vivo
+ *     tags: [Matches]
+ *     responses:
+ *       200:
+ *         description: Lista de partidas em andamento obtida com sucesso.
+ *       500:
+ *         description: Erro ao buscar partidas ao vivo.
+ */
+export const getLiveMatches = async (req: Request, res: Response) => {
+    try {
+        const matches = await getLiveEvents();
+        res.json(matches)
+    } catch (error) {
+        res.status(500).json({error: 'Erro ao buscar jogos ao vivo'});
+    }
+}
+
+/**
+ * @swagger
+ * /api/ended:
+ *   get:
+ *     summary: Retorna partidas encerradas
+ *     tags: [Matches]
+ *     responses:
+ *       200:
+ *         description: Lista de partidas encerradas obtida com sucesso.
+ *       500:
+ *         description: Erro ao buscar partidas encerradas.
+ */
+export const getEndedMatches = async (req: Request, res: Response) => {
+    try {
+        const matchesEnded = await getEndedEvents();
+        res.json(matchesEnded)
+    } catch (error) {
+        res.status(500).json({error: 'Erro ao buscar jogos encerrados'})
+    }
+}
+
+/**
+ * @swagger
+ * /api/matches/upcoming-with-odds:
+ *   get:
+ *     summary: Retorna próximas partidas com odds filtradas
+ *     tags: [Matches]
+ *     description: Busca as próximas partidas reais (excluindo virtuais) e inclui odds dos mercados principais (Resultado Final, Gols Over/Under, Resultado 1º Tempo).
+ *     responses:
+ *       200:
+ *         description: Lista de partidas com odds obtida com sucesso.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   home:
+ *                     type: string
+ *                     example: Arsenal
+ *                   away:
+ *                     type: string
+ *                     example: Chelsea
+ *                   league:
+ *                     type: string
+ *                     example: Premier League
+ *                   date:
+ *                     type: string
+ *                     example: 24/03/2026, 20:00:00
+ *                   odds:
+ *                     type: object
+ *       500:
+ *         description: Erro ao buscar partidas com odds.
+ */
+export const getMatches = async (req: Request, res: Response) => {
+    try {
+        const { matches, cacheComplete } = await getMatchesWithOdds();
+        res.status(200).json({ matches, cacheComplete });
+    } catch (error) {
+        console.error("Erro no controller:", error);
+        res.status(500).json({ error: "Erro ao buscar jogos com odds" });
+    }
+};
+
+/**
+ * @swagger
+ * /api/matches/upcoming:
+ *   get:
+ *     summary: Retorna todas as próximas partidas (sem odds)
+ *     tags: [Matches]
+ *     description: Busca todas as próximas partidas reais (excluindo virtuais). Retorna os dados crus da API para listagem completa.
+ *     responses:
+ *       200:
+ *         description: Lista de próximas partidas obtida com sucesso.
+ *       500:
+ *         description: Erro ao buscar próximas partidas.
+ */
+export const getUpcomingMatches = async (req: Request, res: Response) => {
+    try {
+        const response = await getUpcomingEvents();
+        res.status(200).json(response.results ?? []);
+    } catch (error) {
+        console.error("Erro no controller:", error);
+        res.status(500).json({ error: "Erro ao buscar próximas partidas" });
+    }
+};
+
+/**
+ * @swagger
+ * /api/match/{eventId}/odds:
+ *   get:
+ *     summary: Retorna as odds de uma partida específica
+ *     tags: [Matches]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Odds da partida obtidas com sucesso.
+ *       500:
+ *         description: Erro ao buscar odds.
+ */
+export const getMatchOdds = async (req: Request, res: Response) => {
+    try {
+        const eventId = req.params.eventId;
+        if (!eventId) {
+            res.status(400).json({ error: "eventId obrigatório" });
+            return;
+        }
+        const data = await getOddsForMatch(eventId);
+        res.status(200).json(data);
+    } catch (error) {
+        console.error("Erro ao buscar odds:", error);
+        res.status(500).json({ error: "Erro ao buscar odds", simpleOdds: null, odds: null });
+    }
+};
+
+export const getMatchFullOdds = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getFullOddsForMatch(eventId);
+        if (!data) { res.status(404).json({ error: "Odds não encontradas para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error) {
+        console.error("Erro ao buscar full odds:", error);
+        res.status(500).json({ error: "Erro ao buscar full odds" });
+    }
+};
+
+export const getMatchH2H = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getH2HForMatch(eventId);
+        if (!data) { res.status(404).json({ error: "H2H não encontrado para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[H2H] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar H2H" });
+    }
+};
+
+export const getMatchH2HBulk = async (req: Request, res: Response) => {
+    try {
+        const data = getAllCachedH2H();
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error("[H2H-Bulk] Erro:", error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar H2H em lote" });
+    }
+};
+
+/**
+ * @swagger
+ * /api/match/{eventId}/historic:
+ *   get:
+ *     summary: Retorna o histórico recente dos dois times de uma partida
+ *     tags: [Matches]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *         description: Quantidade de jogos recentes por time
+ *     responses:
+ *       200:
+ *         description: Histórico dos times obtido com sucesso.
+ *       404:
+ *         description: Histórico não encontrado para esta partida.
+ *       500:
+ *         description: Erro ao buscar histórico.
+ */
+export const getMatchHistoricHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const limit = parseInt(req.query.limit as string) || 5;
+        const data = await getMatchHistoric(eventId, limit);
+        if (!data) { res.status(404).json({ error: "Histórico não encontrado para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[Historic] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar histórico" });
+    }
+};
+
+export const getMatchLiveStatsHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getMatchLiveStats(eventId);
+        if (!data) { res.status(404).json({ error: "Estatísticas ao vivo não disponíveis para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
+    }
+};
