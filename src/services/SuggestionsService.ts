@@ -478,20 +478,28 @@ async function generateAIAnalysis(matches: EnrichedMatch[]): Promise<Suggestion[
 
     const summaries = matches.map((m, i) => buildMatchSummaryForAI(m, i + 1)).join("\n");
 
-    const prompt = `Você é um analista esportivo profissional brasileiro. Analise estas ${matches.length} partidas das grandes ligas europeias e do Brasil.
-
-Para cada partida, escolha a MELHOR aposta (a que tem mais valor considerando odds + contexto) e escreva uma análise detalhada explicando POR QUE essa odd é boa.
+    const prompt = `Você é um analista esportivo profissional brasileiro. Analise estas ${matches.length} partidas e sugira apostas seguindo EXATAMENTE as regras de distribuição abaixo.
 
 ## Partidas e contexto:
 
 ${summaries}
 
+## DISTRIBUIÇÃO OBRIGATÓRIA:
+
+### MELHORES DO DIA (type "best") — exatamente 9 apostas:
+- 3 apostas com odds próximas de 1.30 (faixa 1.20-1.35) → confiança "alta"
+- 4 apostas com odds entre 1.40-1.70 → confiança "alta"
+- 2 apostas com odds entre 1.90-2.20 → confiança "media"
+
+### PARA SONHAR (type "dream") — pelo menos 3 apostas:
+- Apostas com odds ALTAS: 4.0+, 6.0+, ou até 20.0+ → confiança "baixa"
+- Zebras, surpresas, azarões com algum dado que justifique a aposta
+
 ## Regras:
-- Analise TODAS as ${matches.length} partidas, uma sugestão por partida
-- Para cada uma, escolha o melhor pick: "Vitória [Time]", "Empate", "Over 2.5 gols", "Under 2.5 gols", ou "Ambos marcam"
-- O "reasoning" deve ser um texto de 2-3 frases explicando POR QUE essa aposta é boa, citando dados concretos. Exemplo: "O Real Madrid joga em casa e vem de 6 vitórias seguidas, com média de 2.3 gols/jogo. O adversário sofre em média 1.8 gols fora de casa."
-- Classifique como "best" (favorito forte, aposta segura) ou "dream" (zebra com odds altas > 3.0)
-- Confiança: "alta" se os dados sustentam fortemente, "media" se razoável, "baixa" se arriscado
+- Para cada aposta, escolha o pick: "Vitória [Time]", "Empate", "Over 2.5 gols", "Under 2.5 gols", ou "Ambos marcam"
+- O "reasoning" deve ter 2-3 frases com dados concretos justificando a aposta
+- IMPORTANTE: Respeite as faixas de odds! Se a odd do jogo não encaixa numa faixa, escolha outro mercado ou jogo
+- Pode usar o mesmo jogo para "best" e "dream" se houver mercados diferentes
 
 ## Formato JSON (responda APENAS o JSON):
 [
@@ -499,7 +507,7 @@ ${summaries}
     "match_index": 1,
     "pick": "Vitória Real Madrid",
     "confidence": "alta",
-    "reasoning": "O Real Madrid joga em casa e vem embalado com 4 vitórias seguidas, marcando em média 2.1 gols por jogo. O adversário sofreu em 7 dos últimos 10 jogos fora de casa.",
+    "reasoning": "O Real Madrid joga em casa e vem embalado com 4 vitórias seguidas...",
     "type": "best"
   }
 ]`;
@@ -576,109 +584,83 @@ ${summaries}
 }
 
 // ─── Heurística (fallback sem Groq) ─────
+function buildReasoning(match: EnrichedMatch, team: string, ctx: TeamContext, isHome: boolean): string {
+    const streak = ctx.formString.match(/^W*/)?.[0]?.length ?? 0;
+    const parts: string[] = [];
+    parts.push(`${team} ${isHome ? "joga em casa" : "é favorito mesmo fora de casa"}`);
+    if (streak >= 2) parts.push(`vem de ${streak} vitórias seguidas`);
+    if (ctx.avgGoalsScored > 0) parts.push(`marca em média ${ctx.avgGoalsScored} gols/jogo`);
+    if (ctx.winRate > 0) parts.push(`${ctx.winRate}% de vitórias nos últimos jogos`);
+    return parts.join(", ") + ".";
+}
+
 function generateHeuristicSuggestions(matches: EnrichedMatch[]): Suggestion[] {
-    const suggestions: Suggestion[] = [];
+    // Categoriza cada jogo por faixa de odd
+    interface OddOption { match: EnrichedMatch; pick: string; odds: number; team: string; ctx: TeamContext; isHome: boolean }
+
+    const allOptions: OddOption[] = [];
 
     for (const match of matches) {
         const [homeOdd, drawOdd, awayOdd] = match.simpleOdds;
         const h = match.homeContext;
         const a = match.awayContext;
-        const homeProb = 1 / homeOdd;
-        const awayProb = 1 / awayOdd;
 
-        // Montar reasoning com dados reais
-        const hStreak = h.formString.match(/^W*/)?.[0]?.length ?? 0;
-        const aStreak = a.formString.match(/^W*/)?.[0]?.length ?? 0;
-
-        if (homeProb > 0.50 && homeOdd >= 1.25) {
-            const parts: string[] = [];
-            parts.push(`${match.home} joga em casa`);
-            if (hStreak >= 2) parts.push(`vem de ${hStreak} vitórias seguidas`);
-            if (h.avgGoalsScored > 0) parts.push(`marca em média ${h.avgGoalsScored} gols/jogo`);
-            if (a.avgGoalsConceded > 1) parts.push(`${match.away} sofre ${a.avgGoalsConceded} gols/jogo fora de casa`);
-
-            suggestions.push({
-                id: `best-${match.id}`,
-                matchId: match.id,
-                teamA: match.home,
-                teamB: match.away,
-                league: match.league,
-                pick: `Vitória ${match.home}`,
-                odds: homeOdd,
-                probability: Math.round(homeProb * 100),
-                confidence: homeProb > 0.60 ? "alta" : "media",
-                reasoning: parts.join(", ") + ".",
-                type: "best",
-                matchDate: match.date,
-                homeContext: h,
-                awayContext: a,
-            });
-        } else if (awayProb > 0.50 && awayOdd >= 1.25) {
-            const parts: string[] = [];
-            parts.push(`${match.away} é favorito mesmo fora de casa`);
-            if (aStreak >= 2) parts.push(`com ${aStreak} vitórias seguidas`);
-            if (a.avgGoalsScored > 0) parts.push(`média de ${a.avgGoalsScored} gols/jogo`);
-
-            suggestions.push({
-                id: `best-${match.id}`,
-                matchId: match.id,
-                teamA: match.home,
-                teamB: match.away,
-                league: match.league,
-                pick: `Vitória ${match.away}`,
-                odds: awayOdd,
-                probability: Math.round(awayProb * 100),
-                confidence: awayProb > 0.60 ? "alta" : "media",
-                reasoning: parts.join(", ") + ".",
-                type: "best",
-                matchDate: match.date,
-                homeContext: h,
-                awayContext: a,
-            });
-        } else if (awayOdd >= 3.5) {
-            suggestions.push({
-                id: `dream-${match.id}`,
-                matchId: match.id,
-                teamA: match.home,
-                teamB: match.away,
-                league: match.league,
-                pick: `Vitória ${match.away}`,
-                odds: awayOdd,
-                probability: Math.round(awayProb * 100),
-                confidence: "baixa",
-                reasoning: `Zebra em ${match.league} — ${match.away} com odds de ${awayOdd.toFixed(2)}.` +
-                    (aStreak >= 2 ? ` Vem de ${aStreak} vitórias seguidas.` : ""),
-                type: "dream",
-                matchDate: match.date,
-                homeContext: h,
-                awayContext: a,
-            });
-        } else {
-            // Jogo equilibrado — sugerir melhor opção
-            const bestOdd = Math.max(homeOdd, awayOdd);
-            const bestTeam = homeOdd >= awayOdd ? match.home : match.away;
-            const bestCtx = homeOdd >= awayOdd ? h : a;
-            const streak = bestCtx.formString.match(/^W*/)?.[0]?.length ?? 0;
-
-            suggestions.push({
-                id: `best-${match.id}`,
-                matchId: match.id,
-                teamA: match.home,
-                teamB: match.away,
-                league: match.league,
-                pick: `Vitória ${bestTeam}`,
-                odds: bestOdd,
-                probability: Math.round((1 / bestOdd) * 100),
-                confidence: "media",
-                reasoning: `Jogo equilibrado em ${match.league}. ${bestTeam} com ${bestCtx.winRate}% de vitórias nos últimos jogos` +
-                    (streak >= 2 ? ` e ${streak} vitórias seguidas` : "") + ".",
-                type: "best",
-                matchDate: match.date,
-                homeContext: h,
-                awayContext: a,
-            });
-        }
+        // Todas as opções de aposta desse jogo
+        if (homeOdd > 0) allOptions.push({ match, pick: `Vitória ${match.home}`, odds: homeOdd, team: match.home, ctx: h, isHome: true });
+        if (awayOdd > 0) allOptions.push({ match, pick: `Vitória ${match.away}`, odds: awayOdd, team: match.away, ctx: a, isHome: false });
+        if (drawOdd > 0) allOptions.push({ match, pick: "Empate", odds: drawOdd, team: match.home, ctx: h, isHome: true });
     }
+
+    // Faixas para "best"
+    const tier1 = allOptions.filter(o => o.odds >= 1.20 && o.odds <= 1.35).sort((a, b) => a.odds - b.odds); // ~1.3
+    const tier2 = allOptions.filter(o => o.odds >= 1.40 && o.odds <= 1.70).sort((a, b) => a.odds - b.odds); // 1.4-1.7
+    const tier3 = allOptions.filter(o => o.odds >= 1.90 && o.odds <= 2.20).sort((a, b) => a.odds - b.odds); // 1.9-2.2
+
+    // Faixa para "dream" — odds altas 3.5+
+    const dreamPool = allOptions.filter(o => o.odds >= 3.5).sort((a, b) => b.odds - a.odds);
+
+    const suggestions: Suggestion[] = [];
+    const usedMatchIds = new Set<string>();
+
+    // Helper para evitar repetir o mesmo jogo na mesma categoria
+    const pickFromPool = (pool: OddOption[], count: number, type: "best" | "dream", confidence: "alta" | "media" | "baixa") => {
+        let picked = 0;
+        for (const opt of pool) {
+            if (picked >= count) break;
+            const key = `${type}-${opt.match.id}-${opt.pick}`;
+            if (type === "best" && usedMatchIds.has(`best-${opt.match.id}`)) continue;
+
+            suggestions.push({
+                id: `${type}-${opt.match.id}${type === "dream" ? "-d" : ""}`,
+                matchId: opt.match.id,
+                teamA: opt.match.home,
+                teamB: opt.match.away,
+                league: opt.match.league,
+                pick: opt.pick,
+                odds: opt.odds,
+                probability: Math.round((1 / opt.odds) * 100),
+                confidence,
+                reasoning: type === "dream"
+                    ? `Zebra em ${opt.match.league} — ${opt.team} com odds de ${opt.odds.toFixed(2)}. ${buildReasoning(opt.match, opt.team, opt.ctx, opt.isHome)}`
+                    : buildReasoning(opt.match, opt.team, opt.ctx, opt.isHome),
+                type,
+                matchDate: opt.match.date,
+                homeContext: opt.match.homeContext,
+                awayContext: opt.match.awayContext,
+            });
+
+            if (type === "best") usedMatchIds.add(`best-${opt.match.id}`);
+            picked++;
+        }
+    };
+
+    // Melhores do Dia: 3 x ~1.3 | 4 x 1.4-1.7 | 2 x 1.9-2.2
+    pickFromPool(tier1, 3, "best", "alta");
+    pickFromPool(tier2, 4, "best", "alta");
+    pickFromPool(tier3, 2, "best", "media");
+
+    // Para Sonhar: odds altas 3.5+
+    pickFromPool(dreamPool, 5, "dream", "baixa");
 
     return suggestions;
 }
@@ -926,26 +908,76 @@ export async function getSuggestions(day?: string): Promise<Suggestion[]> {
     }
 }
 
+/**
+ * Pós-processamento: IGNORA o type que a IA atribuiu e reclassifica
+ * puramente pela odd real. Isso garante que "best" SEMPRE terá odds
+ * dentro das faixas corretas e "dream" SEMPRE terá odds altas.
+ */
+function classifyByOddsRange(all: Suggestion[]): { best: Suggestion[]; dream: Suggestion[] } {
+    // Pools por faixa de odd (independente do type original)
+    const tier1 = all.filter(s => s.odds >= 1.10 && s.odds <= 1.35); // ~1.3 → alta
+    const tier2 = all.filter(s => s.odds >= 1.36 && s.odds <= 1.75); // 1.4-1.7 → alta
+    const tier3 = all.filter(s => s.odds >= 1.76 && s.odds <= 2.30); // 1.9-2.2 → media
+    const dreamPool = all.filter(s => s.odds >= 3.50);                // 3.5+ → dream
+
+    // Evitar duplicar o mesmo jogo
+    const usedIds = new Set<string>();
+    const pickUnique = (pool: Suggestion[], count: number): Suggestion[] => {
+        const result: Suggestion[] = [];
+        for (const s of pool) {
+            if (result.length >= count) break;
+            if (usedIds.has(s.matchId)) continue;
+            usedIds.add(s.matchId);
+            result.push(s);
+        }
+        return result;
+    };
+
+    // Melhores: 3 x tier1 + 4 x tier2 + 2 x tier3 = 9
+    const best1 = pickUnique(tier1.sort((a, b) => a.odds - b.odds), 3)
+        .map(s => ({ ...s, type: "best" as const, confidence: "alta" as const }));
+    const best2 = pickUnique(tier2.sort((a, b) => a.odds - b.odds), 4)
+        .map(s => ({ ...s, type: "best" as const, confidence: "alta" as const }));
+    const best3 = pickUnique(tier3.sort((a, b) => a.odds - b.odds), 2)
+        .map(s => ({ ...s, type: "best" as const, confidence: "media" as const }));
+
+    const best = [...best1, ...best2, ...best3];
+
+    // Se não preencheu 9, complementa com o que sobrou na faixa 1.10-2.30
+    if (best.length < 9) {
+        const remaining = all
+            .filter(s => s.odds >= 1.10 && s.odds <= 2.30 && !usedIds.has(s.matchId))
+            .sort((a, b) => a.odds - b.odds);
+        for (const s of remaining) {
+            if (best.length >= 9) break;
+            usedIds.add(s.matchId);
+            best.push({ ...s, type: "best" as const, confidence: s.odds <= 1.75 ? "alta" as const : "media" as const });
+        }
+    }
+
+    // Dream: odds >= 3.5, resetar usedIds pois dream pode repetir jogo de best
+    const dreamUsed = new Set<string>();
+    const dream = dreamPool
+        .sort((a, b) => b.odds - a.odds)
+        .filter(s => {
+            if (dreamUsed.has(s.matchId)) return false;
+            dreamUsed.add(s.matchId);
+            return true;
+        })
+        .slice(0, 5)
+        .map(s => ({ ...s, type: "dream" as const, confidence: "baixa" as const }));
+
+    return { best, dream };
+}
+
 export async function getBestOfDay(): Promise<Suggestion[]> {
     const all = await getSuggestions();
-    const best = all.filter(s => s.type === "best");
-    if (best.length > 0) return best;
-
-    // Fallback: se IA/heurística não classificou nenhum como best, usa as odds mais seguras.
-    return [...all]
-        .sort((a, b) => a.odds - b.odds)
-        .slice(0, Math.min(Math.max(3, Math.ceil(all.length * 0.6)), all.length))
-        .map(s => ({ ...s, type: "best" }));
+    const { best } = classifyByOddsRange(all);
+    return best;
 }
 
 export async function getDreamBets(): Promise<Suggestion[]> {
     const all = await getSuggestions();
-    const dreams = all.filter(s => s.type === "dream");
-    if (dreams.length > 0) return dreams;
-
-    // Fallback: se não houver dream, usa as maiores odds como apostas de risco.
-    return [...all]
-        .sort((a, b) => b.odds - a.odds)
-        .slice(0, Math.min(Math.max(2, Math.ceil(all.length * 0.3)), all.length))
-        .map(s => ({ ...s, type: "dream" }));
+    const { dream } = classifyByOddsRange(all);
+    return dream;
 }
