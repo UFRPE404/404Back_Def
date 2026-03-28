@@ -1,7 +1,5 @@
 import { Request, Response } from "express";
-import { getLiveEvents } from "../services/betsApiService";
-import { getEndedEvents } from "../services/betsApiService";
-import { getUpcomingEvents } from "../services/betsApiService";
+import { getLiveEvents, getEndedEvents, getUpcomingEvents, getLineupWithFallback, getEventView } from "../services/betsApiService";
 import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
 import { getMatchHistoric } from "../services/HistoricService";
 import { getMatchLiveStats } from "../services/LiveStatsService";
@@ -242,5 +240,118 @@ export const getMatchLiveStatsHandler = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
         res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
+    }
+};
+
+export const getMatchLineupHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getLineupWithFallback(eventId);
+        if (!data) { res.status(404).json({ error: "Escalação não disponível para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[Lineup] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar escalação" });
+    }
+};
+
+/* ------- match events helpers ------- */
+
+type EventType = "goal" | "yellow" | "red" | "substitution";
+interface ParsedEvent { minute: number; type: EventType; team: "home" | "away"; player: string; }
+
+const EVENT_LABELS: Record<EventType, string> = {
+    goal: 'Gol',
+    yellow: 'Cartão Amarelo',
+    red: 'Cartão Vermelho',
+    substitution: 'Substituição',
+};
+
+function teamSimilarity(extracted: string, candidate: string): number {
+    if (!extracted || !candidate) return 0;
+    const a = extracted.toLowerCase();
+    const b = candidate.toLowerCase();
+    if (a === b) return 1;
+    if (b.includes(a) || a.includes(b)) return 0.8;
+    const aWords = new Set(a.split(/\s+/));
+    const bWords = b.split(/\s+/);
+    const common = bWords.filter(w => aWords.has(w)).length;
+    return common / Math.max(aWords.size, bWords.length);
+}
+
+/**
+ * Tenta extrair o nome do jogador do texto bruto do evento.
+ * Formato gol:    "40' - 1st Goal - PLAYER (Team) -"
+ * Formato cartão: "22' ~ 1st Yellow Card ~ PLAYER ~(Team)"
+ * Formato sub:    "72' - 1st Substitution - PLAYER_OUT for PLAYER_IN (Team)"
+ */
+function extractPlayer(text: string, type: EventType): string {
+    if (type === 'goal') {
+        // Text between last " - " before the "(Team)" block
+        const m = text.match(/Goal - (.+?)\s*\([^)]+\)\s*-?\s*$/i);
+        return m?.[1]?.trim() ?? '';
+    }
+    if (type === 'yellow' || type === 'red') {
+        // Text between "Card ~" and the final "~(Team)"
+        const m = text.match(/Card ~\s*(.+?)\s*~\(/i);
+        return m?.[1]?.trim() ?? '';
+    }
+    if (type === 'substitution') {
+        const m = text.match(/Substitution - (.+?)\s*\([^)]+\)\s*-?\s*$/i);
+        return m?.[1]?.trim() ?? '';
+    }
+    return '';
+}
+
+function parseMatchEvents(rawEvents: any[], homeTeamName: string, awayTeamName: string): ParsedEvent[] {
+    const result: ParsedEvent[] = [];
+    for (const ev of rawEvents) {
+        const text: string = ev.text ?? '';
+        let type: EventType | null = null;
+        if (/Goal/i.test(text) && !/Corner|Race|Penalty Shootout|No Goal/i.test(text)) type = 'goal';
+        else if (/Yellow Card/i.test(text)) type = 'yellow';
+        else if (/Red Card/i.test(text) && !/Yellow/i.test(text)) type = 'red';
+        else if (/Substitution/i.test(text)) type = 'substitution';
+        else continue;
+
+        const minMatch = text.match(/^(\d+)/);
+        if (!minMatch || !minMatch[1]) continue;
+        const minute = parseInt(minMatch[1], 10);
+
+        // Extract team name to determine home/away side
+        let rawTeam = '';
+        const goalTeam = text.match(/\(([^)]+)\)\s*-?\s*$/);
+        const cardTeam = text.match(/~\(([^)]+)\)/);
+        if (goalTeam?.[1]) rawTeam = goalTeam[1].trim();
+        else if (cardTeam?.[1]) rawTeam = cardTeam[1].trim();
+
+        const homeScore = teamSimilarity(rawTeam, homeTeamName);
+        const awayScore = teamSimilarity(rawTeam, awayTeamName);
+        const team: "home" | "away" = homeScore >= awayScore ? 'home' : 'away';
+
+        // Build display label — use player name when available
+        const playerName = extractPlayer(text, type);
+        const label = EVENT_LABELS[type];
+        const player = playerName ? `${label} — ${playerName}` : label;
+
+        result.push({ minute, type, team, player });
+    }
+    return result;
+}
+
+export const getMatchEventsHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getEventView(eventId);
+        if (!data) { res.status(404).json({ error: "Evento não encontrado" }); return; }
+        const homeTeamName: string = data.home?.name ?? '';
+        const awayTeamName: string = data.away?.name ?? '';
+        const events = parseMatchEvents(data.events ?? [], homeTeamName, awayTeamName);
+        res.status(200).json({ events, homeTeam: homeTeamName, awayTeam: awayTeamName });
+    } catch (error: any) {
+        console.error(`[Events] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar eventos da partida" });
     }
 };
