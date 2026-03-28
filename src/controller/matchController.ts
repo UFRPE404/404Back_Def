@@ -1,7 +1,5 @@
 import { Request, Response } from "express";
-import { getLiveEvents } from "../services/betsApiService";
-import { getEndedEvents } from "../services/betsApiService";
-import { getUpcomingEvents } from "../services/betsApiService";
+import { getLiveEvents, getEndedEvents, getUpcomingEvents, getLineupWithFallback } from "../services/betsApiService";
 import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
 import { getMatchHistoric } from "../services/HistoricService";
 import { getMatchLiveStats } from "../services/LiveStatsService";
@@ -242,5 +240,18 @@ export const getMatchLiveStatsHandler = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
         res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
+    }
+};
+
+export const getMatchLineupHandler = async (req: Request, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        if (!eventId) { res.status(400).json({ error: "eventId obrigatório" }); return; }
+        const data = await getLineupWithFallback(eventId);
+        if (!data) { res.status(404).json({ error: "Escalação não disponível para esta partida" }); return; }
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error(`[Lineup] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar escalação" });
     }
 };

@@ -218,4 +218,90 @@ export const getEventView = async (eventId: string) => {
     }
 };
 
+/**
+ * Busca o elenco atual (squad) de um time pelo ID.
+ * Retorna array de jogadores mapeados para o formato padrão, ou null se vazio.
+ */
+export const getTeamSquad = async (teamId: string): Promise<any[] | null> => {
+    return withRetry(async () => {
+        const response = await axios.get(`https://api.b365api.com/v1/team/squad`, {
+            params: { token: TOKEN, team_id: teamId },
+            timeout: API_TIMEOUT,
+        });
+        const raw: any[] = response.data.results ?? [];
+        if (raw.length === 0) return null;
+        return raw.map(p => ({
+            id: p.id,
+            name: p.name,
+            position: p.position ?? '',
+            shirt_number: p.shirtnumber ?? null,
+            cc: p.cc,
+        }));
+    }, `getTeamSquad(${teamId})`);
+};
+
+export interface LineupWithFallback {
+    home: any;
+    away: any;
+    homeFallback: boolean;
+    awayFallback: boolean;
+}
+
+/**
+ * Busca o lineup de uma partida.
+ * Se um dos times não tiver escalação disponível, busca o lineup do último jogo desse time.
+ */
+export const getLineupWithFallback = async (eventId: string): Promise<LineupWithFallback | null> => {
+    // 1. Tenta escalação do jogo atual
+    const lineup = await getEventLineup(eventId).catch(() => null);
+
+    const hasHome = !!(lineup?.home?.lineup?.length || lineup?.home?.players?.length);
+    const hasAway = !!(lineup?.away?.lineup?.length || lineup?.away?.players?.length);
+
+    if (hasHome && hasAway) {
+        return { home: lineup.home, away: lineup.away, homeFallback: false, awayFallback: false };
+    }
+
+    // 2. Busca IDs dos times pelo event/view
+    const eventView = await getEventView(eventId).catch(() => null);
+    if (!eventView) {
+        if (!lineup) return null;
+        return { home: lineup?.home ?? null, away: lineup?.away ?? null, homeFallback: false, awayFallback: false };
+    }
+
+    const homeIdStr = String(eventView.home?.id ?? '');
+    const awayIdStr = String(eventView.away?.id ?? '');
+
+    let homeData = lineup?.home ?? null;
+    let awayData = lineup?.away ?? null;
+    let homeFallback = false;
+    let awayFallback = false;
+
+    // 3. Fallback para o time da casa — usa o elenco atual (squad)
+    if (!hasHome && homeIdStr) {
+        try {
+            const squadPlayers = await getTeamSquad(homeIdStr).catch(() => null);
+            if (squadPlayers) {
+                homeData = { players: squadPlayers, lineup: [], substitutes: [] };
+                homeFallback = true;
+            }
+        } catch { /* sem fallback disponível */ }
+    }
+
+    // 4. Fallback para o time visitante — usa o elenco atual (squad)
+    if (!hasAway && awayIdStr) {
+        try {
+            const squadPlayers = await getTeamSquad(awayIdStr).catch(() => null);
+            if (squadPlayers) {
+                awayData = { players: squadPlayers, lineup: [], substitutes: [] };
+                awayFallback = true;
+            }
+        } catch { /* sem fallback disponível */ }
+    }
+
+    if (!homeData && !awayData) return null;
+
+    return { home: homeData, away: awayData, homeFallback, awayFallback };
+};
+
 
