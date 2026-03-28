@@ -1,4 +1,4 @@
-import { getLiveEventById } from "./betsApiService";
+import { getLiveEventById, getLiveEvents } from "./betsApiService";
 
 // ─── Tipos ──────────────────────────────────────────────────
 
@@ -77,5 +77,32 @@ export const getMatchLiveStats = async (eventId: string): Promise<MatchLiveStats
     } catch (err: any) {
         console.error(`[LiveStats] Erro para eventId=${eventId}:`, err?.message ?? err);
         return null;
+    }
+};
+
+/**
+ * Retorna as estatísticas em tempo real de TODOS os jogos ao vivo de uma vez.
+ * Faz apenas 1 request para o inplay (via cache compartilhado) ao invés de N.
+ */
+export const getAllLiveStats = async (): Promise<Record<string, MatchLiveStats>> => {
+    try {
+        const results: any[] = await getLiveEvents();
+        const out: Record<string, MatchLiveStats> = {};
+        for (const raw of results) {
+            const eventId = String(raw.id);
+            const stats = raw.stats ?? null;
+            const minute = raw.timer?.tm != null ? Number(raw.timer.tm) : null;
+            out[eventId] = {
+                eventId,
+                minute,
+                score: raw.ss ?? "0-0",
+                home: extractTeam(raw, "home", stats),
+                away: extractTeam(raw, "away", stats),
+            };
+        }
+        return out;
+    } catch (err: any) {
+        console.error("[LiveStats] Erro ao buscar bulk:", err?.message ?? err);
+        return {};
     }
 };

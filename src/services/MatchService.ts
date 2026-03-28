@@ -100,7 +100,8 @@ interface CachedData {
 }
 
 let matchesCache: CachedData | null = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const CACHE_TTL = 30 * 60 * 1000;           // 30 minutos — TTL absoluto
+const CACHE_REVALIDATE_AFTER = 10 * 60 * 1000; // 10 minutos — inicia refresh silencioso em background
 let backgroundFetchInProgress = false;
 
 // ─── Cache de H2H ──────────────────────────────────────────
@@ -270,6 +271,13 @@ function isCacheValid(): boolean {
     return !!matchesCache && (Date.now() - matchesCache.timestamp) < CACHE_TTL;
 }
 
+/** Cache existe e está passando do tempo de revalidação suave (mas ainda dentro do TTL absoluto) */
+function isCacheStaleSoft(): boolean {
+    if (!matchesCache) return false;
+    const age = Date.now() - matchesCache.timestamp;
+    return age >= CACHE_REVALIDATE_AFTER && age < CACHE_TTL;
+}
+
 function processGames(rawGames: any[]): any[] {
     // Deduplica por id
     const seen = new Set<string>();
@@ -319,33 +327,48 @@ function fetchWeekInBackground() {
 }
 
 /**
- * Estratégia de duas fases:
- * 1. Se cache válido → retorna instantâneo
- * 2. Se não tem cache → busca só HOJE (1 request, ~1-2s) e retorna
- *    + dispara busca da semana inteira em background
- * 3. Próximas requests pegam do cache completo
+ * Estratégia de três fases com stale-while-revalidate:
+ * 1. Cache fresco (< 10 min) → retorna instantâneo
+ * 2. Cache envelhecendo (10–30 min) → retorna dados atuais + inicia refresh silencioso em background
+ * 3. Cache expirado (> 30 min) mas com dados → retorna dados antigos (stale) + inicia refresh urgente
+ * 4. Sem cache → busca rápida de HOJE e dispara busca da semana em background
  */
 async function fetchUpcomingGames(): Promise<any[]> {
-    // Fase 0: Cache válido → instantâneo (remove jogos que já começaram desde o cache)
+    const now = Date.now();
+
+    // Fase 0: Cache válido → instantâneo
     if (isCacheValid()) {
-        const now = Date.now();
         const live = matchesCache!.data.filter((g: any) => Number(g.time) * 1000 > now);
         console.log(`[Cache] ${live.length} jogos (completo: ${matchesCache!.complete})`);
-        // Se cache existe mas é só do dia, dispara background pra completar
-        if (!matchesCache!.complete) fetchWeekInBackground();
+        // Se incompleto ou entrando na janela de revalidação suave, dispara background
+        if (!matchesCache!.complete || isCacheStaleSoft()) fetchWeekInBackground();
         return live;
     }
 
-    // Fase 1: Busca rápida — todas as páginas de HOJE
+    // Fase 1: Cache expirado mas com dados — stale-while-revalidate
+    // Serve os dados antigos imediatamente e dispara refresh em background (sem bloquear)
+    if (matchesCache && matchesCache.data.length > 0) {
+        const stale = matchesCache.data.filter((g: any) => Number(g.time) * 1000 > now);
+        if (stale.length > 0) {
+            console.log(`[Cache] Expirado — servindo ${stale.length} jogos stale + revalidando em background...`);
+            // Reseta o timestamp para evitar que múltiplas requisições simultâneas disparem vários fetchs
+            matchesCache.timestamp = now;
+            matchesCache.complete = false;
+            fetchWeekInBackground();
+            return stale;
+        }
+    }
+
+    // Fase 2: Sem cache útil — busca rápida de HOJE para resposta imediata
     console.log("[API] Busca rápida: todos os jogos de hoje...");
     try {
         const todayGames = processGames(await getAllUpcomingForDay(getTodayStr()));
 
-        // Salva cache parcial (só hoje, completo com paginação)
-        matchesCache = { data: todayGames, timestamp: Date.now(), complete: false };
+        // Salva cache parcial (só hoje)
+        matchesCache = { data: todayGames, timestamp: now, complete: false };
         console.log(`[API] ${todayGames.length} jogos de hoje retornados`);
 
-        // Fase 2: Dispara busca completa em background (não bloqueia)
+        // Dispara busca completa da semana em background (não bloqueia)
         fetchWeekInBackground();
 
         return todayGames;

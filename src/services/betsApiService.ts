@@ -51,15 +51,42 @@ async function withRetry<T>(fn: () => Promise<T>, context: string): Promise<T> {
 
 // ─── Endpoints ───────────────────────────
 
+// ─── Inplay cache (TTL 12s) ──────────────────────────────────────────────────
+// Compartilhado entre getLiveEvents e getLiveEventById para evitar que N calls
+// paralelos (um por jogo) gerem N requests externas.
+interface InplayCache {
+    results: any[];
+    expiresAt: number;
+}
+let _inplayCache: InplayCache | null = null;
+let _inplayFetchPromise: Promise<any[]> | null = null; // deduplicação de requests concorrentes
+const INPLAY_CACHE_TTL = 12_000; // 12 segundos
 
-export const getLiveEvents = async () => {
-    return withRetry(async () => {
+async function fetchInplayResults(): Promise<any[]> {
+    // Se cache ainda válido, retorna imediatamente
+    if (_inplayCache && Date.now() < _inplayCache.expiresAt) {
+        return _inplayCache.results;
+    }
+    // Deduplicação: se já tem uma request em andamento, aguarda ela
+    if (_inplayFetchPromise) return _inplayFetchPromise;
+
+    _inplayFetchPromise = withRetry(async () => {
         const response = await axios.get(`${BASE_URL}/events/inplay`, {
             params: { token: TOKEN, sport_id: 1 },
             timeout: API_TIMEOUT,
         });
-        return response.data.results;
-    }, 'getLiveEvents');
+        const results: any[] = response.data.results ?? [];
+        _inplayCache = { results, expiresAt: Date.now() + INPLAY_CACHE_TTL };
+        return results;
+    }, 'fetchInplayResults').finally(() => {
+        _inplayFetchPromise = null;
+    });
+
+    return _inplayFetchPromise;
+}
+
+export const getLiveEvents = async () => {
+    return fetchInplayResults();
 };
 
 export const getEndedEvents = async () => {
@@ -188,17 +215,11 @@ export const getTeamHistory = async (teamId: string, page = 1) => {
 
 /**
  * Busca os dados e stats em tempo real de um jogo ao vivo pelo event_id.
- * O endpoint inplay não filtra por event_id, então filtramos manualmente.
+ * Usa o cache compartilhado do inplay — não faz request extra por jogo.
  */
 export const getLiveEventById = async (eventId: string) => {
-    return withRetry(async () => {
-        const response = await axios.get(`${BASE_URL}/events/inplay`, {
-            params: { token: TOKEN, sport_id: 1 },
-            timeout: API_TIMEOUT,
-        });
-        const results: any[] = response.data.results ?? [];
-        return results.find((e: any) => String(e.id) === String(eventId)) ?? null;
-    }, `getLiveEventById(${eventId})`);
+    const results = await fetchInplayResults();
+    return results.find((e: any) => String(e.id) === String(eventId)) ?? null;
 };
 
 /**

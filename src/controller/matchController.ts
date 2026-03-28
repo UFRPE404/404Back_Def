@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { getLiveEvents, getEndedEvents, getUpcomingEvents, getLineupWithFallback, getEventView } from "../services/betsApiService";
 import { getMatchesWithOdds, getOddsForMatch, getFullOddsForMatch, getH2HForMatch, getAllCachedH2H } from "../services/MatchService";
 import { getMatchHistoric } from "../services/HistoricService";
-import { getMatchLiveStats } from "../services/LiveStatsService";
+import { getMatchLiveStats, getAllLiveStats } from "../services/LiveStatsService";
 
 /**
  * @swagger
@@ -240,6 +240,16 @@ export const getMatchLiveStatsHandler = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error(`[LiveStats] Erro para eventId=${req.params.eventId}:`, error?.message ?? error);
         res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo" });
+    }
+};
+
+export const getAllLiveStatsBulkHandler = async (_req: Request, res: Response) => {
+    try {
+        const data = await getAllLiveStats();
+        res.status(200).json(data);
+    } catch (error: any) {
+        console.error("[LiveStats] Erro ao buscar bulk:", error?.message ?? error);
+        res.status(500).json({ error: "Erro ao buscar estatísticas ao vivo em bulk" });
     }
 };
 
