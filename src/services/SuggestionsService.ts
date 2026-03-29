@@ -72,6 +72,8 @@ const TARGET_LEAGUES = [
     "la liga",
     "bundesliga",
     "serie a",
+    "serie b",
+    "serie c",
     "brasileirao",
     "betano",
     "ligue 1",
@@ -80,6 +82,8 @@ const TARGET_LEAGUES = [
     "copa libertadores",
     "copa do brasil",
     "copa do nordeste",
+    "campeonato",   // captura todos os estaduais: baiano, carioca, paulista, etc.
+    "copa do",      // outras copas regionais brasileiras
 ];
 
 function isTargetLeague(league: string): boolean {
@@ -192,13 +196,17 @@ async function fetchEnrichedMatches(matches: any[]): Promise<EnrichedMatch[]> {
         return !league.includes("reserves") && !league.includes("women");
     });
 
-    // 2. Priorização: Brasil/Nordeste vs Outras Ligas
+    // 2. Priorização: Brasil vs Outras Ligas
     const priorityMatches = cleanMatches.filter(m => {
         const leagueName = (m.league || "").toLowerCase();
         return leagueName.includes("nordeste") || 
                leagueName.includes("brazil") || 
                leagueName.includes("brasil") ||
-               leagueName.includes("northeast");
+               leagueName.includes("northeast") ||
+               leagueName.includes("campeonato") ||   // estaduais
+               leagueName.includes("serie b") ||
+               leagueName.includes("serie c") ||
+               leagueName.includes("copa do");        // copas regionais
     });
 
     const otherMatches = cleanMatches.filter(m => 
@@ -339,7 +347,12 @@ async function askGroqToPick(matches: any[]): Promise<any[]> {
     }).join("\n");
 
     const prompt = `Dentre estes ${matches.length} jogos de futebol do dia, selecione os 10 MAIS INTERESSANTES para análise de apostas.
-Priorize jogos com ligas conhecidas, times grandes, e odds que indicam jogos equilibrados ou favoritos claros.
+Priorize nesta ordem:
+1. Champions League, Premier League, La Liga, Serie A italiana, Bundesliga, Ligue 1, Copa Libertadores
+2. Brasileirão Série A, Copa do Brasil, Copa do Nordeste
+3. Brasileirão Série B, Série C, Campeonatos Estaduais brasileiros
+4. Outras ligas internacionais com times conhecidos
+Se não houver jogos das ligas europeias, priorize os brasileiros disponíveis.
 
 ${summary}
 
@@ -674,8 +687,13 @@ async function selectFeaturedWithAI(matches: any[]): Promise<string[]> {
         return `${i + 1}. [ID:${m.id}] ${m.home} vs ${m.away} | ${m.league} | ${m.date}`;
     }).join("\n");
 
-    const prompt = `Selecione os 8 a 10 jogos MAIS INTERESSANTES:
-Priorize: Champions League, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Brasileirão, Copa Libertadores.
+    const prompt = `Selecione os 8 a 10 jogos MAIS INTERESSANTES para destaque na home.
+Priorize nesta ordem:
+1. Champions League, Premier League, La Liga, Serie A italiana, Bundesliga, Ligue 1, Copa Libertadores
+2. Brasileirão Série A, Copa do Brasil, Copa do Nordeste
+3. Brasileirão Série B, Série C, Campeonatos Estaduais (Baiano, Carioca, Paulista, Mineiro, Gaúcho, etc.)
+4. Outras ligas com times conhecidos
+Se não houver grandes jogos europeus no dia, destaque os melhores jogos brasileiros disponíveis.
 
 ${summary}
 

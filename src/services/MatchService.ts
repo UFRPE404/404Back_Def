@@ -127,18 +127,22 @@ async function processWithConcurrency<T>(items: T[], limit: number, fn: (item: T
  * Reutilizada pelo preload (que já tem IDs) e pelo getH2HForMatch.
  */
 async function computeH2HData(homeId: string, awayId: string, homeName: string, awayName: string) {
-    const [homeData1, homeData2, awayData1, awayData2] = await Promise.allSettled([
+    const [homeData1, homeData2, homeData3, homeData4, awayData1, awayData2, awayData3, awayData4] = await Promise.allSettled([
         getTeamHistory(homeId, 1),
         getTeamHistory(homeId, 2),
+        getTeamHistory(homeId, 3),
+        getTeamHistory(homeId, 4),
         getTeamHistory(awayId, 1),
         getTeamHistory(awayId, 2),
+        getTeamHistory(awayId, 3),
+        getTeamHistory(awayId, 4),
     ]);
 
     const extract = (res: PromiseSettledResult<any>): any[] =>
         res.status === 'fulfilled' ? (res.value?.results ?? []) : [];
 
-    const homeMatches = [...extract(homeData1), ...extract(homeData2)];
-    const awayMatches = [...extract(awayData1), ...extract(awayData2)];
+    const homeMatches = [...extract(homeData1), ...extract(homeData2), ...extract(homeData3), ...extract(homeData4)];
+    const awayMatches = [...extract(awayData1), ...extract(awayData2), ...extract(awayData3), ...extract(awayData4)];
 
     if (homeMatches.length === 0 && awayMatches.length === 0) {
         return {
@@ -280,19 +284,26 @@ function isCacheStaleSoft(): boolean {
 
 function processGames(rawGames: any[]): any[] {
     // Deduplica por id
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    // Deduplica por par de times (mesmo jogo com IDs diferentes)
+    const seenPairs = new Set<string>();
     const unique: any[] = [];
     for (const game of rawGames) {
         const id = String(game.id);
-        if (!seen.has(id)) {
-            seen.add(id);
-            unique.push(game);
-        }
+        const homeId = String(game.home?.id ?? "");
+        const awayId = String(game.away?.id ?? "");
+        const pair = homeId && awayId ? `${homeId}-${awayId}` : "";
+        if (seenIds.has(id)) continue;
+        if (pair && seenPairs.has(pair)) continue;
+        seenIds.add(id);
+        if (pair) seenPairs.add(pair);
+        unique.push(game);
     }
     const now = Date.now();
-    // Filtra virtuais, jogos já começados, e ordena por horário
+    const RECENTLY_STARTED_MS = 105 * 60 * 1000; // 105 minutos (jogo + intervalo)
+    // Filtra virtuais e jogos encerrados há mais de 105 minutos; mantém futuros e em andamento
     return unique
-        .filter((g: any) => !isVirtualMatch(g) && Number(g.time) * 1000 > now)
+        .filter((g: any) => !isVirtualMatch(g) && Number(g.time) * 1000 > now - RECENTLY_STARTED_MS)
         .sort((a: any, b: any) => Number(a.time) - Number(b.time));
 }
 

@@ -116,7 +116,7 @@ export const getUpcomingEvents = async (day?: string, page = 1) => {
 /**
  * Busca TODAS as páginas de upcoming para um dia, seguindo paginação da API.
  */
-const MAX_PAGES_PER_DAY = 5;
+const MAX_PAGES_PER_DAY = 15;
 
 export const getAllUpcomingForDay = async (day?: string): Promise<any[]> => {
     const allResults: any[] = [];
